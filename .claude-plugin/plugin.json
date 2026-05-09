@@ -1,0 +1,22 @@
+{
+  "name": "agentic-pipeline",
+  "version": "0.1.0-beta",
+  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → manager with three human-approval gates. Includes /pipeline-init for onboarding new or existing projects from a PRD, a repo URL, or a description paragraph.",
+  "author": {
+    "name": "Scott Converse",
+    "email": "sconverse@gmail.com"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/scottconverse/agentic-pipeline",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scottconverse/agentic-pipeline.git"
+  },
+  "keywords": [
+    "agent",
+    "pipeline",
+    "orchestration",
+    "multi-stage",
+    "human-in-the-loop"
+  ]
+}

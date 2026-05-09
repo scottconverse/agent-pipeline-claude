@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentic-pipeline — multi-stage agent runs for Claude Code</title>
+<meta name="description" content="A Claude Code plugin for orchestrating multi-stage agent work: research → plan → test-write → execute → policy → verify → manager. Three human-approval gates. Resumable. Built from real agent failures.">
+<style>
+  :root {
+    --fg: #0f172a;
+    --muted: #475569;
+    --bg: #fafaf9;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --accent: #1e40af;
+    --accent-soft: #dbeafe;
+    --human: #ffd9b3;
+    --human-edge: #cc6600;
+    --agent: #cce5ff;
+    --agent-edge: #0066cc;
+    --policy: #fff3b3;
+    --policy-edge: #999900;
+    --gate: #ffb3b3;
+    --gate-edge: #cc0000;
+    --code-bg: #0f172a;
+    --code-fg: #e2e8f0;
+    --max: 980px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    font-size: 17px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header.hero {
+    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+    color: #f8fafc;
+    padding: 64px 24px 56px;
+  }
+  .hero-inner { max-width: var(--max); margin: 0 auto; }
+  .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.10);
+    color: #cbd5e1;
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  h1 { margin: 0 0 14px; font-size: 44px; line-height: 1.1; letter-spacing: -0.02em; }
+  .tagline { font-size: 21px; color: #cbd5e1; margin: 0 0 30px; max-width: 680px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-block;
+    padding: 12px 22px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 15px;
+    border: 1px solid transparent;
+  }
+  .btn-primary { background: #3b82f6; color: white; }
+  .btn-primary:hover { background: #2563eb; text-decoration: none; }
+  .btn-ghost {
+    background: transparent;
+    color: #f8fafc;
+    border-color: rgba(255,255,255,0.30);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.10); text-decoration: none; }
+
+  main { max-width: var(--max); margin: 0 auto; padding: 56px 24px; }
+
+  section { margin-bottom: 56px; }
+  h2 { font-size: 28px; letter-spacing: -0.01em; margin: 0 0 18px; }
+  h3 { font-size: 18px; margin: 0 0 8px; }
+  p { color: var(--fg); }
+  .muted { color: var(--muted); }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.5;
+    font-family: "SF Mono", Monaco, Menlo, Consolas, monospace;
+  }
+  code {
+    font-family: "SF Mono", Monaco, Menlo, Consolas, monospace;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+  }
+  .card h3 { margin-top: 0; }
+  .card p { color: var(--muted); margin: 6px 0 0; font-size: 15px; }
+
+  .pipeline-diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 18px;
+    overflow-x: auto;
+  }
+  .stages {
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 6px;
+    min-width: 740px;
+    flex-wrap: nowrap;
+  }
+  .stage {
+    flex: 1 1 0;
+    min-width: 86px;
+    border-radius: 8px;
+    padding: 14px 8px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.3;
+    border: 2px solid;
+  }
+  .stage strong { display: block; font-size: 13px; margin-bottom: 4px; font-weight: 700; }
+  .stage span { color: var(--muted); font-size: 11px; }
+  .stage.human  { background: var(--human);  border-color: var(--human-edge);  }
+  .stage.agent  { background: var(--agent);  border-color: var(--agent-edge);  }
+  .stage.policy { background: var(--policy); border-color: var(--policy-edge); }
+  .arrow {
+    align-self: center;
+    color: var(--muted);
+    font-weight: 700;
+    flex: 0 0 auto;
+  }
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+    justify-content: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 2px solid;
+  }
+
+  blockquote {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 14px 18px;
+    margin: 0;
+    border-radius: 0 6px 6px 0;
+    color: #1e3a8a;
+  }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  @media (max-width: 640px) {
+    header.hero { padding: 48px 20px 40px; }
+    h1 { font-size: 34px; }
+    .tagline { font-size: 18px; }
+    main { padding: 40px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="badge">v0.1.0-beta · Apache 2.0 · Claude Code plugin</div>
+    <h1>agentic-pipeline</h1>
+    <p class="tagline">
+      Multi-stage agent runs for Claude Code, with three human gates, an
+      automated policy stage, and a resumable run log. Built from real
+      agent failures, so the next one doesn't bite you.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/scottconverse/agentic-pipeline">View on GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/scottconverse/agentic-pipeline/blob/main/USER-MANUAL.md">User manual</a>
+      <a class="btn btn-ghost" href="https://github.com/scottconverse/agentic-pipeline/blob/main/ARCHITECTURE.md">Architecture</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <h2>The pipeline at a glance</h2>
+  <div class="pipeline-diagram">
+    <div class="stages">
+      <div class="stage human"><strong>manifest</strong><span>human gate</span></div>
+      <div class="arrow">→</div>
+      <div class="stage agent"><strong>research</strong><span>researcher</span></div>
+      <div class="arrow">→</div>
+      <div class="stage human"><strong>plan</strong><span>human gate</span></div>
+      <div class="arrow">→</div>
+      <div class="stage agent"><strong>test-write</strong><span>test-writer</span></div>
+      <div class="arrow">→</div>
+      <div class="stage agent"><strong>execute</strong><span>executor</span></div>
+      <div class="arrow">→</div>
+      <div class="stage policy"><strong>policy</strong><span>automated</span></div>
+      <div class="arrow">→</div>
+      <div class="stage agent"><strong>verify</strong><span>verifier</span></div>
+      <div class="arrow">→</div>
+      <div class="stage human"><strong>manager</strong><span>human gate</span></div>
+    </div>
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-swatch" style="background: var(--human); border-color: var(--human-edge);"></span>
+        Human-approval gate
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch" style="background: var(--agent); border-color: var(--agent-edge);"></span>
+        Agent stage (fresh subagent)
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch" style="background: var(--policy); border-color: var(--policy-edge);"></span>
+        Automated policy gate
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Why this exists</h2>
+  <blockquote>
+    Agentic work fails in predictable ways: the agent improvises past the
+    spec, claims tests pass without running them on a fresh dependency
+    set, merges in-flight work while a scope question is open, picks
+    architectural decisions silently. This plugin enforces a structural
+    pattern that catches every one of those.
+  </blockquote>
+</section>
+
+<section>
+  <h2>Install in 30 seconds</h2>
+  <pre><code># In Claude Code:
+/plugin install scottconverse/agentic-pipeline
+
+# Then in any project (new or existing):
+/pipeline-init
+
+# Then:
+/new-run feature my-task-slug
+# (fill in the manifest the plugin scaffolds)
+/run-pipeline feature 2026-05-09-my-task-slug</code></pre>
+  <p class="muted">
+    The plugin asks one onboarding question — what do you have? — and
+    accepts a PRD path, a repo URL, or a description paragraph. From any
+    of those it scaffolds <code>.pipelines/</code>,
+    <code>scripts/policy/</code>, and a starter <code>CLAUDE.md</code>.
+  </p>
+</section>
+
+<section>
+  <h2>What you get</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Three explicit gates</h3>
+      <p>Manifest, plan, manager-decision. No autonomous-mode-by-stealth. Every gate is a one-question prompt.</p>
+    </div>
+    <div class="card">
+      <h3>Automated policy stage</h3>
+      <p>Blocks the run if changes fall outside <code>allowed_paths</code>, contain TODO/FIXME/HACK, or modify an existing ADR.</p>
+    </div>
+    <div class="card">
+      <h3>Independent verifier</h3>
+      <p>Fresh-context check against every manifest exit criterion. Cannot be talked out of NOT MET.</p>
+    </div>
+    <div class="card">
+      <h3>Manager with teeth</h3>
+      <p>PROMOTE / BLOCK / REPLAN. Must cite verifier evidence verbatim. Encouragement is forbidden.</p>
+    </div>
+    <div class="card">
+      <h3>Resumable runs</h3>
+      <p>Append-only <code>run.log</code> means re-invoking <code>/run-pipeline</code> picks up at the right place — every time.</p>
+    </div>
+    <div class="card">
+      <h3>Project-shaped</h3>
+      <p>After init, the files are yours to edit. Add a project-specific policy check, customize a role file, define your own pipeline type.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What this plugin will NOT do</h2>
+  <ul>
+    <li>Propose autonomous mode. Every gate is explicit.</li>
+    <li>Silently expand scope. The policy stage blocks changes outside <code>allowed_paths</code>.</li>
+    <li>Skip tests. CLAUDE.md hard-rule "never skip tests" is enforced as a project default.</li>
+    <li>Promote a run if the verifier marked any criterion NOT MET.</li>
+    <li>Merge in-flight work while a halt is active — even "obviously safe" cleanup PRs.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Lessons baked in</h2>
+  <p class="muted">
+    This plugin's defaults reflect failures from prior projects. Some of
+    the more expensive ones:
+  </p>
+  <ul>
+    <li><strong>Halts apply to ALL repo state changes.</strong> Including in-flight cleanup work. Past version of me merged a PR while the operator was still reading. Never again.</li>
+    <li><strong>Tests pass locally is not evidence.</strong> CI on a fresh dependency set is. Cleanroom Docker stage is recommended for any project with non-trivial deps.</li>
+    <li><strong>Manifest amendments are corrections, not expansions.</strong> If the scope grows, that's a new run, not a manifest edit.</li>
+    <li><strong>The manager must cite the verifier verbatim.</strong> Summarization and encouragement are how bad runs get promoted.</li>
+    <li><strong>Director decisions belong in the manifest, not in chat.</strong> The researcher surfaces them; the human picks in writing.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Documentation</h2>
+  <div class="grid">
+    <div class="card">
+      <h3><a href="https://github.com/scottconverse/agentic-pipeline/blob/main/README.md">README</a></h3>
+      <p>Quick-start, install, what each gate does.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/scottconverse/agentic-pipeline/blob/main/USER-MANUAL.md">User Manual</a></h3>
+      <p>Every command, every gate, every troubleshooting case. Read this before your first real run.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/scottconverse/agentic-pipeline/blob/main/ARCHITECTURE.md">Architecture</a></h3>
+      <p>Diagrams of the stage flow, file layout, artifact data flow, gate sequence, extension points.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/scottconverse/agentic-pipeline/discussions">Discussions</a></h3>
+      <p>Q&amp;A, show-and-tell, ideas, roadmap. Beta — feedback shapes v0.2.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Beta posture</h2>
+  <p>
+    v0.1.0-beta means: the structural pattern is solid (it has shipped
+    real features at least one project), but the slash-command edge cases
+    will surface in your codebase before they surface in mine. Open an
+    issue or a discussion when something bites — that's the point of the
+    beta tag.
+  </p>
+</section>
+
+</main>
+
+<footer>
+  agentic-pipeline · Apache-2.0 ·
+  <a href="https://github.com/scottconverse/agentic-pipeline">github</a> ·
+  <a href="https://github.com/scottconverse/agentic-pipeline/discussions">discussions</a>
+</footer>
+
+</body>
+</html>

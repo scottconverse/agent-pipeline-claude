@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# Feature pipeline — full sequence for new functionality.
+#
+# Each stage runs in a fresh Claude Code session given:
+#   - the role file at .pipelines/roles/<role>.md
+#   - the manifest at .agent-runs/<run-id>/manifest.yaml
+#   - all prior artifacts in .agent-runs/<run-id>/
+# and produces a single named artifact.
+#
+# Gates marked human_approval require the human director to sign off
+# before the pipeline advances. Pipeline gates (e.g., policy) are
+# automated.
+
+pipeline: feature
+
+stages:
+  - name: manifest
+    role: human
+    artifact: manifest.yaml
+    gate: human_approval
+
+  - name: research
+    role: researcher
+    artifact: research.md
+
+  - name: plan
+    role: planner
+    artifact: plan.md
+    gate: human_approval
+
+  - name: test-write
+    role: test-writer
+    artifact: failing-tests-report.md
+
+  - name: execute
+    role: executor
+    artifact: implementation-report.md
+
+  - name: policy
+    role: pipeline
+    command: python scripts/policy/run_all.py --run {run_id}
+    artifact: policy-report.md
+
+  - name: verify
+    role: verifier
+    artifact: verifier-report.md
+
+  - name: manager
+    role: manager
+    artifact: manager-decision.md
+    gate: human_approval
