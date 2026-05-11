@@ -8,6 +8,38 @@ leaves beta. While in `0.1.x-beta`, breaking changes to slash-command
 arguments, manifest fields, or role-file contracts may land in any
 release; the `CHANGELOG` will call them out.
 
+## [0.5.1] — 2026-05-11
+
+Patch release. Adds standing doc-currency invariants to the drift-detector role so cumulative drift cannot ship under a feature-scoped manifest.
+
+### Why this release exists
+
+v0.5's drift-detector was contracted against the manifest's `expected_outputs` only. That contract is sound for the run's own scope but lets cumulative drift accumulate across releases: a feature-scoped manifest legitimately ships its feature, the verifier passes, but the project's top-of-file content (counts, tables, diagrams, version strings, section orderings) goes stale because nothing in the manifest names the back-audit.
+
+The v0.5 dogfood run (`.agent-runs/2026-05-11-version-flag/`) had this exact gap — the drift-detector caught the in-scope `--version` drift but did not flag months-stale top-of-file content in README, USER-MANUAL, and `docs/index.html`. The fix is structural: invariants every release silently makes get their own enforcement, independent of any manifest.
+
+### Changed
+
+- `pipelines/roles/drift-detector.md` — added §8 **Standing doc-currency invariants**. Five invariants checked on EVERY run regardless of manifest scope:
+  - **8a Version-string consistency** (`blocker` on mismatch): every authoritative version string in the repo agrees — `plugin.json`, `marketplace.json` (top-level metadata AND each plugin entry), `pyproject.toml` if present, every `argparse action="version"` string under `scripts/`, the top `## [X.Y.Z]` in `CHANGELOG.md`, `<div class="badge">vX.Y.Z` in `docs/index.html`, `**Version:** X.Y.Z` in `USER-MANUAL.md`.
+  - **8b File-inventory tables** (`non-blocker` on small drift, `blocker` on whole-release-missing): USER-MANUAL "What you get" counts match `ls` reality; README scaffold block lists every file actually in `pipelines/roles/` and `scripts/`.
+  - **8c Pipeline-diagram parity** (`blocker` on docs releases): `docs/index.html` `.pipeline-diagram` stages match `pipelines/feature.yaml` stage list and order.
+  - **8d Section-ordering sanity** (`non-blocker`): per-version sections in README and USER-MANUAL appear in monotonic order; a `## v0.5:` followed by a `## v0.4:` is a reliable back-audit signal.
+  - **8e Stability-posture currency** (`non-blocker`): any explicit current-release version reference in `docs/index.html` matches the current release.
+- Output checklist updated to require explicit PASS/FAIL on every standing invariant.
+- Drift item numbering shifted: §8 was Drift items; now §9. The count line in §2 was already abstracted across all numbered drift sections, so this is a forward-compatible rename.
+- `--version` flag bumped to `agentic-pipeline 0.5.1` on `scripts/auto_promote.py` and `scripts/check_manifest_schema.py`.
+
+### Stacking with v0.2, v0.3, v0.4, v0.5
+
+No new stages, no new role files, no new policy scripts. v0.5.1 extends the contract of the existing drift-detector role file. All v0.5 behavior is preserved; the only behavioral change is that more drift items will be flagged on future runs.
+
+### Honest limit
+
+The standing invariants are enforced by a role file the drift-detector subagent reads. A subagent could in principle disregard a hard rule. The structural backstop is `auto_promote.py`'s read of the drift count line — if the drift-detector reports blocker drift, auto-promote refuses to fire, and the manager human-approval gate runs. The invariants harden the role contract but do not replace the auto-promote gate.
+
+---
+
 ## [0.5.0] — 2026-05-11
 
 The single-AI hardened release. Six structural changes that compensate for dropping dual-AI cross-family verification: two new agent roles (critic, drift-detector), pre-edit fact-forcing in the executor, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation. Built from the design question "can the pipeline do both action-level judge AND post-hoc audit with one AI?" Answer: yes, with the structural defense in this release.
