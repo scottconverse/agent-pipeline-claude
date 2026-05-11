@@ -101,6 +101,33 @@ Human gates at Phase 0 results review, Phase 2 rehearsal-ok, and Phase 5 release
 
 **Operator reference:** `docs/module-release-handbook.md` covers initial setup, expected timing per sprint type, and an honest "what this pipeline does NOT prevent" section. Originating failure receipts are documented in the handbook so future operators understand why each stage exists.
 
+## v0.3: Dual-AI audit-handoff discipline
+
+For projects where one AI implements and a different AI audits (e.g., Claude implements while Codex audits, or vice versa), v0.3 adds a complementary discipline that catches drift the pipeline doesn't:
+
+```
+/audit-init
+```
+
+This scaffolds three artifacts:
+1. `<PROJECT>_AUDIT_GATE.md` (out-of-repo) — short mandatory gate the auditing agent reads every verification turn.
+2. `<PROJECT>_AUDIT_PROTOCOL.md` (out-of-repo) — long reference protocol with the 10-section output shape, status-word rules, and a known drift patterns catalog.
+3. `<project>/docs/process/5-lens-self-audit.md` (in-repo, via PR) — shared discipline both agents read. The implementer runs a hostile 5-lens self-audit before every push (Engineering / UX / Tests / Docs / QA), plus a post-push SHA-propagation step.
+
+Plus per-agent wiring (Claude memory file or Codex skill addition) so each agent reads the right artifact on session start.
+
+The discipline is symmetric — any agent can play either role:
+- CivicCast uses Claude=implementer / Codex=auditor.
+- CivicSuite uses Codex=implementer / Claude=auditor.
+
+**Stacking with v0.2:**
+- Pipeline (v0.2) catches execution-cascade failures: pre-existing CI bugs, tag-move dances, halt-and-ask loops.
+- Audit-handoff (v0.3) catches drift failures: wrong endpoint, stale CHANGELOG, "Closed" without evidence, status-word abuse.
+
+The two address different failure modes. Use both for projects with two AI systems.
+
+**Operator reference:** `docs/audit-handoff-handbook.md`.
+
 ## What this plugin will NOT do
 
 - It will not propose autonomous mode. Every gate is explicit.
