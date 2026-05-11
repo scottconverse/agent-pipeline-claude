@@ -1,7 +1,7 @@
 {
   "name": "agentic-pipeline",
-  "version": "0.5.0",
-  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager. v0.2 adds the module-release pipeline. v0.3 adds the dual-AI audit-handoff discipline. v0.4 adds the judge layer — real-time action-level supervision inside the executor stage. v0.5 adds single-AI hardening: critic + drift-detector stages, pre-edit fact-forcing in the executor, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation — structural substitute for dual-AI cross-family verification when running with one AI.",
+  "version": "0.6.0",
+  "description": "Multi-stage agentic pipeline runner for Claude Code AND Codex. Orchestrates research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager. v0.2 adds the module-release pipeline. v0.3 adds the dual-AI audit-handoff discipline. v0.4 adds the judge layer — real-time action-level supervision inside the executor stage. v0.5 adds single-AI hardening: critic + drift-detector stages, pre-edit fact-forcing in the executor, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation. v0.6 adds Codex runtime support — natural-language equivalents of the slash commands under codex/ plus an AGENTS.md template so the same pipeline contract runs under either AI.",
   "author": {
     "name": "Scott Converse",
     "email": "sconverse@gmail.com"

@@ -2,7 +2,7 @@
 
 A Claude Code plugin that orchestrates multi-stage agentic work with three human-approval gates. Built from real lessons across multi-week agent projects where autonomous runs go wrong silently and "manager-PROMOTE" failures slip past CI.
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 **License:** Apache 2.0
 
 ---
@@ -18,8 +18,9 @@ A Claude Code plugin that orchestrates multi-stage agentic work with three human
 7. [Customizing for your project](#customizing-for-your-project)
 8. [Resuming a halted run](#resuming-a-halted-run)
 9. [The judge layer (v0.4)](#the-judge-layer-v04)
-10. [Troubleshooting](#troubleshooting)
-11. [Glossary](#glossary)
+10. [Using with Codex (v0.6)](#using-with-codex-v06)
+11. [Troubleshooting](#troubleshooting)
+12. [Glossary](#glossary)
 
 ---
 
@@ -416,6 +417,52 @@ Rules are first-match-wins within each class, and the four classes are evaluated
 The judge's `escalation_question` is designed to be answerable without reading other artifacts. If you find yourself unable to answer, the manifest is probably ambiguous — the right move is to halt, edit the manifest to remove the ambiguity, and re-run. The escalation question itself often tells you exactly which manifest field is unclear.
 
 Do NOT routinely click APPROVE on escalations you don't fully understand. That's the cookie-banner effect arriving in slow motion. If escalations are happening on the same kind of question repeatedly, that's a manifest-template improvement to make for your project.
+
+---
+
+## Using with Codex (v0.6)
+
+The pipeline runs under Codex as well as Claude Code. Same `.pipelines/`, same `scripts/policy/`, same role briefs, same run state under `.agent-runs/<run-id>/`. The Codex path is provided through four natural-language prompts under `codex/` instead of slash commands.
+
+### Setup
+
+Inside a Codex session in your project, paste the contents of `codex/pipeline-init.md` as the first message. Codex follows the same logic Claude's `/pipeline-init` encodes: orientation summary, scaffold `.pipelines/` + `scripts/policy/`, optionally create `AGENTS.md` (the Codex analog of `CLAUDE.md`).
+
+If you already ran `/pipeline-init` from Claude and the project has `.pipelines/` already, just ask Claude (or do it yourself) to copy `pipelines/templates/AGENTS.md` from the plugin source to the repo root.
+
+### Starting a new run
+
+Paste `codex/new-run.md` into a fresh Codex session, then tell Codex the pipeline type and slug: `feature auth-timeout`. Codex creates `.agent-runs/YYYY-MM-DD-auth-timeout/manifest.yaml` and asks you to fill it in. Same as Claude's `/new-run`.
+
+### Running the pipeline
+
+Paste `codex/run-pipeline.md` into a fresh Codex session along with the pipeline type, run id, and a mode preference:
+
+- **"one stage"** (recommended) — Codex executes the NEXT incomplete stage and stops. Start a fresh Codex session for each stage. This preserves context isolation between stages — the structural firewall that makes the pipeline trustworthy.
+- **"all stages"** — Codex executes every remaining stage in this session. Faster but context bleeds between stages. Use for small / low-stakes runs.
+
+For Handler 3 agent stages, Codex's recommended mode is to print the role prompt + run context and tell you to paste it into a FRESH Codex session, then come back when that session writes the artifact. This emulates Claude's subagent isolation through a session boundary.
+
+### What Codex doesn't do
+
+Claude Code has Handler 3a — a real-time interceptor that classifies every executor tool call and routes high-risk ones through a judge subagent. Codex cannot intercept its own tool calls mid-stream, so the judge layer is not implemented under Codex. The substitute:
+
+- The executor reads `action-classification.yaml` itself and refuses `high_risk` actions without asking the user first.
+- The drift-detector and critic (later stages) catch anything that slipped through.
+
+This is weaker than Claude's pattern. If a project's risk posture demands real-time action supervision, run the executor stage under Claude Code rather than Codex. You can mix: research and plan under Codex, execute under Claude, verify under Codex. The run state is portable.
+
+### Mixing AIs on the same project
+
+Both `CLAUDE.md` and `AGENTS.md` can coexist at the repo root. The `.pipelines/` definitions, the `scripts/policy/` checks, and the `.agent-runs/<run-id>/` state are all runtime-neutral. A run started under Claude can be resumed by Codex pasting `codex/run-pipeline.md` with the same run id, and vice versa.
+
+This is useful for the dual-AI audit pattern (v0.3) where Claude implements and Codex audits in the same repo — or any other implementer/auditor split.
+
+### Codex-specific gotchas
+
+- **Codex doesn't have `AskUserQuestion`.** The Codex prompts ask questions in plain English; you reply in plain English. There's no structured option-picker.
+- **Codex doesn't show a typed Approve button.** Type the word `APPROVE` at human gates exactly as the prompt asks. The orchestration logic checks for the literal word.
+- **Session boundaries replace subagent boundaries.** In Claude, a stage's "fresh context" is automatic — the orchestrator spawns a subagent. In Codex, you have to actually start a new session. If you skip that step and run the role in the same session, the firewall is broken and the pipeline's reliability assumptions weaken.
 
 ---
 

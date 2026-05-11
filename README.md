@@ -208,6 +208,26 @@ If `.pipelines/action-classification.yaml` does not exist in your project, the e
 
 **Operator reference:** USER-MANUAL.md §"The judge layer (v0.4)".
 
+## v0.6: Codex support
+
+The pipeline now runs under Codex as well as Claude Code. The Claude Code path is unchanged; v0.6 is purely additive.
+
+### What's new
+
+- **`codex/` directory** with four natural-language equivalents of the slash commands: `codex/pipeline-init.md`, `codex/new-run.md`, `codex/run-pipeline.md`, `codex/audit-init.md`. Paste any of these into a fresh Codex session and Codex follows the same logic the Claude slash commands encode.
+- **`pipelines/templates/AGENTS.md`** — Codex project-context template, analog of `CLAUDE.md`. `/pipeline-init` (Claude) and `codex/pipeline-init` both ask whether Codex is in scope and scaffold this file when so.
+- **Fresh-session-per-stage convention** — Codex has no subagent primitive, so the orchestration prompt instructs the operator to start a fresh Codex session per stage. This substitutes "human-driven session boundary" for "subagent context isolation" as the structural firewall. There's also an "all stages in one session" mode for low-stakes runs.
+
+### What's NOT in the Codex path
+
+- **No Handler 3a (judge layer).** Codex can't intercept its own tool calls mid-stream. The judge layer's substitute under Codex is: the executor reads `action-classification.yaml` itself, refuses `high_risk` actions without human approval, and the drift-detector + critic catch anything that slipped through. Weaker than Claude's interceptor pattern — if a project's risk posture demands real-time supervision, run the executor stage under Claude Code.
+
+### Mixing AIs on the same project
+
+Both `CLAUDE.md` and `AGENTS.md` can coexist at the repo root. Same `.pipelines/`, same `scripts/policy/`, same role briefs. The run state under `.agent-runs/<run-id>/` is portable: a run started by Claude can be resumed by Codex and vice versa as long as both runtimes can read the `run.log` and the manifest. Useful for the dual-AI audit pattern (v0.3) where Claude implements and Codex audits in the same repo.
+
+**Operator reference:** USER-MANUAL.md §"Using with Codex".
+
 ## What this plugin will NOT do
 
 - It will not propose autonomous mode. Every gate is explicit.

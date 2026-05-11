@@ -497,6 +497,43 @@ Critic and verifier run in the same model family. If both share a wrong assumpti
 
 ---
 
+## 8a. Codex support (v0.6) — runtime-neutral pipeline
+
+v0.6 adds a parallel set of orchestration prompts under `codex/` that let Codex execute the pipeline without changing any role file, policy script, manifest schema, or run-state convention. The structural contract is runtime-neutral; only the orchestrator implementation differs.
+
+### Two orchestrators, same contract
+
+```
+.pipelines/         (runtime-neutral — same for both)
+.agent-runs/        (runtime-neutral — same for both)
+scripts/policy/     (runtime-neutral — same for both)
+
+commands/           (Claude Code — slash commands; spawns subagents)
+codex/              (Codex — natural-language prompts; fresh-session-per-stage)
+```
+
+The `.pipelines/` definitions reference role files. The role files reference each other and the manifest. The manifest references allowed_paths and forbidden_paths. None of this depends on the runtime. A run started under one orchestrator can be resumed under the other — the resume mechanism keys off `run.log`, which is plain text.
+
+### Subagent isolation vs session isolation
+
+Claude Code's `Agent` tool spawns a subagent with no parent-conversation memory; the orchestrator passes a role file + run context as the entire prompt. This is the firewall that prevents cross-stage context bleed.
+
+Codex has no subagent primitive. `codex/run-pipeline.md` substitutes "human-driven session boundary" — for each agent stage, the orchestrator instructs the operator to copy the role + context into a fresh Codex session and report back when the artifact is written. The same firewall exists; it is enforced by the operator opening a new session rather than by the runtime spawning one.
+
+There is also a degraded "all stages in one session" mode for low-stakes runs where the operator accepts that context bleeds between stages.
+
+### What's not in the Codex path
+
+Handler 3a (the judge layer) intercepts every tool call the executor proposes and routes high-risk ones through a judge subagent before the action executes. This requires the runtime to intercept its own tool calls mid-stream, which Claude Code's orchestrator can do (it spawns the executor as a subagent and the orchestrator sees every proposed tool call) but Codex cannot do (Codex IS the executor; it has no separate orchestrator layer above its own tool calls).
+
+The Codex substitute: the executor role file is read by Codex itself, which checks `action-classification.yaml` against each action it proposes and refuses `high_risk` actions without explicit user approval. This is weaker than real-time interception — it relies on the executor's compliance — but the drift-detector and critic (later stages) catch anything that slipped through.
+
+### Mixing runtimes on one project
+
+`CLAUDE.md` and `AGENTS.md` can coexist at the repo root. Both name the same `.pipelines/` and the same `scripts/policy/`. A user can start a run under Claude, pause it, hand it to Codex for the next stage, and back. The structural pattern is the contract; the runtime is the executor.
+
+---
+
 ## 9. The run.log resume mechanism
 
 The `run.log` is the source of truth for "what's done." It is

@@ -83,6 +83,8 @@ Once the project's working directory is identified and the orientation is settle
    - Scaffold a minimal `CLAUDE.md` populated from the orientation summary (project purpose, stack, conventions). Include sections for: order of operations, layered audit pattern (4 altitudes), closed architectural decisions (empty until first ADR), open decisions (empty), tooling, non-negotiables (empty placeholder), git workflow, role posture, and "What you never do" list.
    - The user is expected to edit this. The plugin gives them a starting structure, not the final word.
 
+5. **`AGENTS.md`** (v0.6+) — only if the project will also use Codex. Ask via `AskUserQuestion`: `Will this project be worked on by Codex as well as Claude Code?` with options `Yes — scaffold AGENTS.md too` / `Claude Code only — skip AGENTS.md`. If yes, copy the plugin's `pipelines/templates/AGENTS.md` to the project root. Do not overwrite an existing `AGENTS.md`; ask first.
+
 5. **Display a summary** to the user:
    - What was scaffolded (file list)
    - What was inferred about the project
@@ -118,4 +120,5 @@ Stage complete only when:
 - `scripts/policy/` is present with 5 expected files (__init__.py + 4 scripts).
 - `.gitignore` has `.agent-runs/` (or was created).
 - `CLAUDE.md` exists (either pre-existing or scaffolded).
+- `AGENTS.md` exists if Codex is in scope (v0.6+), otherwise skipped.
 - User has been told what to do next (`/new-run feature <slug>` or similar).

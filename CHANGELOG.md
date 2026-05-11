@@ -8,6 +8,41 @@ leaves beta. While in `0.1.x-beta`, breaking changes to slash-command
 arguments, manifest fields, or role-file contracts may land in any
 release; the `CHANGELOG` will call them out.
 
+## [0.6.0] — 2026-05-11
+
+The runtime-neutral release. The pipeline now runs under Codex as well as Claude Code. Purely additive — no role file, policy script, manifest schema, or run-state convention changes. The structural contract is runtime-neutral; only the orchestrator implementation differs between Claude (subagent-based) and Codex (fresh-session-per-stage).
+
+### Added
+
+- `codex/pipeline-init.md` — Codex equivalent of `/pipeline-init`. Natural-language prompt the operator pastes into a fresh Codex session to onboard a project. Same three input paths (PRD / repo / description), same orientation summary, same scaffold output as the Claude command.
+- `codex/new-run.md` — Codex equivalent of `/new-run`. Initializes a run directory and manifest skeleton.
+- `codex/run-pipeline.md` — Codex equivalent of `/run-pipeline`. Walks every stage; supports "one stage" (recommended, fresh session per stage) and "all stages" (single-session, low-stakes) modes. For agent stages, the recommended pattern instructs the operator to copy the role + run context into a fresh Codex session and report back when the artifact is written — Codex's structural substitute for Claude's `Agent` subagent.
+- `codex/audit-init.md` — Codex equivalent of `/audit-init`. Scaffolds the dual-AI audit-handoff infrastructure (gate + protocol + 5-lens self-audit doc).
+- `pipelines/templates/AGENTS.md` — Codex project-context template, analog of `CLAUDE.md`. Names the pipeline, the Codex runtime conventions (one stage per session, fresh-session-per-stage for isolation), the hard rules, and the v0.5 single-AI hardening that applies to Codex runs.
+
+### Changed
+
+- `commands/pipeline-init.md` — adds an `AskUserQuestion` step asking whether Codex is in scope; scaffolds `AGENTS.md` to the project root when so. Output checklist updated.
+- `README.md` — new "v0.6: Codex support" section.
+- `USER-MANUAL.md` — new "Using with Codex (v0.6)" section covering setup, run-mode tradeoffs, what's NOT in the Codex path (Handler 3a / judge layer), mixing AIs on one project, and Codex-specific gotchas.
+- `ARCHITECTURE.md` — new §8a "Codex support (v0.6) — runtime-neutral pipeline" covering subagent-vs-session isolation, the Handler 3a gap, and mixing runtimes on one project.
+- `--version` flag updated to `agentic-pipeline 0.6.0` on `scripts/auto_promote.py` and `scripts/check_manifest_schema.py`.
+
+### Why this exists
+
+The pipeline's structural pattern (manifest → research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager) is runtime-neutral. The role briefs are markdown. The policy checks are stdlib Python. The manifest is YAML. None of it depends on Claude Code. The only Claude-specific pieces were the four slash commands. v0.6 adds Codex-flavored equivalents so the same contract runs under either AI.
+
+### Honest limits
+
+- **Handler 3a (judge layer) is not implemented under Codex.** Codex cannot intercept its own tool calls mid-stream — Codex IS the executor; it has no separate orchestrator above its tool layer. The Codex substitute is: executor reads `action-classification.yaml` itself and refuses high_risk actions without explicit user approval. Weaker than Claude's real-time interceptor. For projects where real-time action supervision is non-negotiable, run the executor stage under Claude Code.
+- **Session isolation is human-enforced.** Claude's subagent spawning is automatic; Codex's fresh-session-per-stage requires the operator to actually start a new session. If the operator runs every stage in one session, the firewall between stages is gone and the pipeline's reliability assumptions weaken.
+
+### Stacking with v0.2–v0.5
+
+All stack with v0.6 unchanged. The Claude orchestrator is the reference implementation; the Codex orchestrator emulates it with a session-boundary substitute for subagent isolation. Both produce identical `.agent-runs/<run-id>/` state.
+
+---
+
 ## [0.5.0] — 2026-05-11
 
 The single-AI hardened release. Six structural changes that compensate for dropping dual-AI cross-family verification: two new agent roles (critic, drift-detector), pre-edit fact-forcing in the executor, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation. Built from the design question "can the pipeline do both action-level judge AND post-hoc audit with one AI?" Answer: yes, with the structural defense in this release.
