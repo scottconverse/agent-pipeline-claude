@@ -93,7 +93,7 @@ pipeline_run:
   module:
     name: civicrecords-ai
     repo: CivicSuite/civicrecords-ai
-    local_path: C:/Users/scott/OneDrive/Desktop/Claude/civicrecords-ai
+    local_path: /path/to/civicrecords-ai      # absolute path on operator's machine
     target_version: "1.5.0"
     previous_version: "1.4.10"
 
