@@ -1,7 +1,7 @@
 {
   "name": "agentic-pipeline",
-  "version": "0.3.0",
-  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → manager with three human-approval gates. v0.2 adds the module-release pipeline (Phase 0 infrastructure preflight + Phase 2 local rehearsal + self-classification rules). v0.3 adds the dual-AI audit-handoff discipline (/audit-init scaffolds a shared in-repo 5-lens self-audit doc plus out-of-repo audit gate + protocol, for projects where one AI implements and a different AI audits).",
+  "version": "0.4.0",
+  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → manager with three human-approval gates. v0.2 adds the module-release pipeline (Phase 0 infrastructure preflight + Phase 2 local rehearsal + self-classification rules). v0.3 adds the dual-AI audit-handoff discipline (/audit-init scaffolds a shared in-repo 5-lens self-audit doc plus out-of-repo audit gate + protocol, for projects where one AI implements and a different AI audits). v0.4 adds the judge layer — real-time action-level supervision inside the executor stage. Opt-in via .pipelines/action-classification.yaml; classify → judge → execute inner loop with four verdicts (allow / block / revise / escalate). Context-isolated from the executor's reasoning chain.",
   "author": {
     "name": "Scott Converse",
     "email": "sconverse@gmail.com"

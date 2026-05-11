@@ -128,6 +128,52 @@ The two address different failure modes. Use both for projects with two AI syste
 
 **Operator reference:** `docs/audit-handoff-handbook.md`.
 
+## v0.4: Judge layer
+
+Real-time action-level supervision **inside** the executor stage. This is not a new pipeline stage; it is opt-in infrastructure that intercepts the executor's tool calls, classifies each one by risk, and spawns a judge subagent for the dangerous ones. Built from the Lindy case study (May 2026, Nate Jones, "LLM-as-Judge"): an agent that sent 14 unauthorized emails because manual confirmation prompts had trained the operator to click "okay" reflexively. Prompts don't hold across long context; the architectural fix is a second agent whose sole loyalty is the manifest.
+
+```
+# Opt in by creating .pipelines/action-classification.yaml in your project.
+# The orchestrator detects the file at run start and uses Handler 3a
+# (classify → judge → execute) instead of Handler 3 for the executor stage.
+# No other commands change.
+```
+
+### What it does
+
+Every tool call the executor proposes is classified against `.pipelines/action-classification.yaml` and routed by risk class:
+
+- `read_only` (e.g. `cat`, `grep`, `git log`) → execute + log.
+- `reversible_write` (e.g. `str_replace_editor`, `git commit`, `cp`) → execute + log.
+- `external_facing` (e.g. `git push` to non-main, `gh pr create`, `curl -X POST`) → STOP, spawn judge.
+- `high_risk` (e.g. `rm -rf`, `git push --force`, `git push main`, `DROP TABLE`, `npm publish`) → STOP, spawn judge, and require human confirm even after the judge ALLOWs.
+
+### The four verdicts
+
+The judge subagent receives the manifest, the matched action policy, prior judge decisions for this run, and the structured action proposal — but **not** the executor's internal reasoning chain. Context isolation is the mechanism: the judge cannot be persuaded by the same chain of inferences that produced the over-broad action.
+
+- **`allow`** — within scope, evidence supports the justification. Proceed.
+- **`block`** — outside scope, violates policy, or unsupported by evidence. Halt.
+- **`revise`** — legitimate basis, wrong form. Send concrete revision instruction back to the executor (e.g. "push to feature branch, not main"). Max 3 revision cycles per action; auto-escalate after.
+- **`escalate`** — requires human judgment (money, credentials, legal, or judge confidence < 0.7). Pipeline pauses for a specific human question.
+
+### Two new artifacts per run (when judge layer is active)
+
+- **`judge-log.yaml`** — chronological log of every action: tool, arguments, class, disposition (auto_allow / judged_allow / judged_revise / judged_block / judged_escalate / human_confirmed / human_blocked), judge reason, revision instruction. Verifier and manager read this.
+- **`judge-metrics.yaml`** — counts by class and disposition, `escalation_rate`, `judge_invocations`, `revision_cycles`. The escalation rate is the operator's tuning signal — too low means rules too permissive, too high means trust is being eroded by reflexive APPROVE clicking.
+
+### Opt-in by file presence
+
+If `.pipelines/action-classification.yaml` does not exist in your project, the executor stage runs exactly as in v0.3 and earlier — no judge, no `judge-log.yaml`, no behavioral change. The presence of the file at run start opts that run into the judge layer. Operators choose whether to enable it per-project (or per-branch, since it's a file in the repo).
+
+**Stacking with v0.2 and v0.3:**
+
+- Pipeline (v0.2) catches execution-cascade failures — pre-existing CI bugs, tag-move dances, halt-and-ask loops.
+- Audit-handoff (v0.3) catches drift failures — wrong endpoint, stale CHANGELOG, status-word abuse.
+- **Judge layer (v0.4) catches unauthorized actions in real time** — destructive commands, external writes, force pushes, and credential-touching operations evaluated against the manifest at the action boundary instead of after the fact.
+
+**Operator reference:** USER-MANUAL.md §"The judge layer (v0.4)".
+
 ## What this plugin will NOT do
 
 - It will not propose autonomous mode. Every gate is explicit.
