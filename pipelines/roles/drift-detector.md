@@ -60,7 +60,36 @@ Write **`.agent-runs/<run-id>/drift-report.md`** with these sections:
 
    Walk every status claim. Either cite all four pieces of evidence or mark as drift.
 
-8. **Drift items** — numbered list. Each item:
+8. **Standing doc-currency invariants** (v0.5.1) — checks that fire on EVERY run regardless of what the manifest's `expected_outputs` name. These catch the cumulative drift class: a feature-scoped manifest legitimately ships its feature, the verifier passes, but the project's top-of-file content has gone stale from prior releases. The drift-detector closes that gap by checking these invariants every time.
+
+   For each invariant, state: PASS / FAIL. If FAIL, file it as a drift item in §9 with severity per the rules below.
+
+   - **8a. Version-string consistency.** Every authoritative version string in the repo agrees:
+     - `.claude-plugin/plugin.json` `"version"` field
+     - `.claude-plugin/marketplace.json` `metadata.version` AND each plugin entry's `"version"` field
+     - `pyproject.toml` `version =` line (if present)
+     - Every Python script's `argparse` `version="<project> X.Y.Z"` string under `scripts/` (use Grep for `action="version"`)
+     - The top `## [X.Y.Z]` entry in `CHANGELOG.md`
+     - Any `<div class="badge">vX.Y.Z` in `docs/index.html`
+     - Any `**Version:** X.Y.Z` line in `USER-MANUAL.md`
+
+     Mismatches are `blocker` drift. Walk every match and quote the disagreeing strings file:line by file:line.
+
+   - **8b. File-inventory tables.** Counts in human-readable inventory tables match the actual filesystem:
+     - `USER-MANUAL.md` "What you get" section: counts of slash commands, pipeline definitions, role files, and policy checks must equal the actual counts from `ls commands/*.md`, `ls pipelines/*.yaml` (excluding `manifest-template.yaml` and `action-classification.yaml`), `ls pipelines/roles/*.md`, and `ls scripts/*.py` (excluding `__init__.py`).
+     - `README.md` scaffold block (the fenced code block showing the post-init project layout): every file listed must exist; every file in `pipelines/roles/` and `scripts/*.py` must appear in the block. Extras and omissions are both drift.
+
+     Mismatches are `non-blocker` drift if the table is merely behind by one or two files, `blocker` drift if a whole release's worth of files is missing from the inventory.
+
+   - **8c. Pipeline-diagram parity.** The pipeline diagram in `docs/index.html` (the `.pipeline-diagram` div with the `.stage` children) lists the same stages, in the same order, as `pipelines/feature.yaml`. Missing stages or out-of-order stages are `blocker` drift on a docs-facing release; `non-blocker` on a non-docs release.
+
+   - **8d. Section-ordering sanity.** When README or USER-MANUAL has multiple per-version sections (e.g. `## v0.2:`, `## v0.3:`, `## v0.4:`, `## v0.5:`), they appear in monotonic order. A `## v0.5:` followed by a `## v0.4:` is `non-blocker` drift but is a reliable signal that someone shipped a release without back-auditing the top-of-file content.
+
+   - **8e. Stability-posture currency.** If `docs/index.html` (or any other "current release" banner) names a version number explicitly (e.g. "At v0.4, the structural pattern has shipped..."), that version must equal the current release version. Mismatch is `non-blocker` drift.
+
+   These invariants exist because the manifest contract approach to drift-detection is bounded by what the manifest names. Standing invariants are project-level promises every release silently makes (versions agree, inventories are current, diagrams match the YAML). They need their own enforcement.
+
+9. **Drift items** — numbered list. Each item:
    - **Severity.** `blocker` or `non-blocker`. Blocker means the manifest's `definition_of_done` cannot be honestly cleared with this drift present. Non-blocker means the work shipped what it said, but a durable artifact is stale.
    - **What.** The drift, one sentence.
    - **Evidence.** The contradicting pair: manifest text + actual artifact, or two durable artifacts that disagree. Specific quotes, specific file:line.
@@ -80,8 +109,9 @@ Write **`.agent-runs/<run-id>/drift-report.md`** with these sections:
 
 The stage is complete only when:
 
-- The drift count line in §2 matches the actual count in §8.
+- The drift count line in §2 matches the actual count in §9.
 - Every drift item has both halves of the contradiction quoted.
 - Every durable doc in §4 has an explicit TOUCHED/UNTOUCHED verdict.
 - The `definition_of_done` was walked sentence-by-sentence in §3 with per-sentence evidence or per-sentence drift.
+- Every standing invariant in §8 has an explicit PASS/FAIL verdict, with quoted evidence on FAIL.
 - If the headline is "No drift detected," each section explains why per artifact and per claim.
