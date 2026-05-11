@@ -18,8 +18,9 @@ A Claude Code plugin that orchestrates multi-stage agentic work with three human
 7. [Customizing for your project](#customizing-for-your-project)
 8. [Resuming a halted run](#resuming-a-halted-run)
 9. [The judge layer (v0.4)](#the-judge-layer-v04)
-10. [Troubleshooting](#troubleshooting)
-11. [Glossary](#glossary)
+10. [Single-AI hardening (v0.5)](#single-ai-hardening-v05)
+11. [Troubleshooting](#troubleshooting)
+12. [Glossary](#glossary)
 
 ---
 
@@ -44,26 +45,30 @@ If you don't have those yet, `/pipeline-init` helps you scaffold them.
 
 ## What you get
 
-Three slash commands:
+Four slash commands:
 
 | Command | Purpose |
 | :--- | :--- |
 | `/pipeline-init` | Onboard a project. Accepts a PRD path, a repo URL, or a description paragraph. Scaffolds `.pipelines/`, `scripts/policy/`, and `CLAUDE.md` if missing. |
 | `/new-run <type> <slug>` | Initialize a new pipeline run. Creates `.agent-runs/<run-id>/manifest.yaml` from the template and asks you to fill it in. |
 | `/run-pipeline <type> <run-id>` | Orchestrate a pipeline run end-to-end. Stops at human gates and on failure. Resumable. |
+| `/audit-init` | (v0.3) Scaffold dual-AI audit-handoff infrastructure for projects where one AI implements and another audits. |
 
-Two default pipeline definitions:
+Three default pipeline definitions:
 
-- **`feature`** — 8 stages: manifest → research → plan → test-write → execute → policy → verify → manager
-- **`bugfix`** — 7 stages: manifest → research → reproduce → patch → policy → verify → manager
+- **`feature`** — 11 stages: manifest → research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager
+- **`bugfix`** — 10 stages: manifest → research → reproduce → patch → policy → verify → drift-detect → critique → auto-promote → manager
+- **`module-release`** — six-phase release pipeline with Phase 0 preflight + Phase 2 local rehearsal (v0.2+)
 
-Six self-contained role files (markdown) — each tells a fresh Claude session exactly what to do and what is forbidden.
+Thirteen self-contained role files (markdown) — each tells a fresh Claude session exactly what to do and what is forbidden: `researcher`, `planner`, `test-writer`, `executor` (with v0.5 pre-edit fact-forcing), `verifier`, `drift-detector` (v0.5), `critic` (v0.5), `manager` (auto-promote-aware at v0.5), `judge` (v0.4 opt-in), `preflight-auditor` (v0.2), `local-rehearsal` (v0.2), `cross-agent-auditor` (v0.3), `implementer-pre-push` (v0.3).
 
-Four generic policy checks (Python, stdlib only):
+Six generic policy checks (Python, stdlib only):
 
+- `check_manifest_schema.py` — v0.5 strict manifest contract validator
 - `check_allowed_paths.py` — manifest-driven path enforcement
 - `check_no_todos.py` — no TODO/FIXME/HACK in source
 - `check_adr_gate.py` — ADRs are append-only
+- `auto_promote.py` — v0.5 six-condition machine-checkable promote
 - `run_all.py` — combined runner
 
 ## Installation
@@ -416,6 +421,79 @@ Rules are first-match-wins within each class, and the four classes are evaluated
 The judge's `escalation_question` is designed to be answerable without reading other artifacts. If you find yourself unable to answer, the manifest is probably ambiguous — the right move is to halt, edit the manifest to remove the ambiguity, and re-run. The escalation question itself often tells you exactly which manifest field is unclear.
 
 Do NOT routinely click APPROVE on escalations you don't fully understand. That's the cookie-banner effect arriving in slow motion. If escalations are happening on the same kind of question repeatedly, that's a manifest-template improvement to make for your project.
+
+---
+
+## Single-AI hardening (v0.5)
+
+v0.5 adds three stages between `verify` and `manager` plus a strict manifest schema validator. The pipeline now looks like:
+
+```
+manifest → research → plan → test-write → execute → policy → verify →
+drift-detect → critique → auto-promote → manager
+```
+
+You don't opt into v0.5 — every new run on a project initialized with v0.5 plumbing gets the three stages automatically. The point of v0.5 is making the pipeline credible when one AI runs the whole thing.
+
+### What each new stage does
+
+**drift-detect.** A read-only role that compares the manifest's contract (`goal`, `expected_outputs`, `definition_of_done`, `non_goals`) against the assembled final state — durable docs included (`CHANGELOG.md`, `README.md`, `USER-MANUAL.md`, ADRs, any project HANDOFF). It catches the gap class neither the judge (per-action) nor the verifier (per-criterion) sees: documents that say one thing while code says another, version strings out of sync, status-word abuse, "Closed" without evidence. Emits a parseable count line:
+
+```
+**Drift: <total> total, <blocker> blocker**
+```
+
+**critique.** A hostile cold read of every artifact in a fresh context. The critic role contract forbids encouragement, severity softening, "no findings" without per-lens evidence, and trusting the verifier or executor at face value. Walks six lenses — engineering, UX, tests, docs, QA, scope — and emits a parseable count line:
+
+```
+**Findings: <total> total, <blocker> blocker, <critical> critical, <major> major, <minor> minor**
+```
+
+**auto-promote.** A pipeline (script) stage, not an agent. Runs `scripts/policy/auto_promote.py`, which reads the count lines from verifier/critic/drift/policy/judge artifacts and checks six conditions:
+
+1. Verifier-clean: zero `NOT MET` and zero `PARTIAL` criteria.
+2. Critic-clean: zero blocker findings and zero critical findings.
+3. Drift-clean: zero blocker drift items.
+4. Policy-passed: `POLICY: ALL CHECKS PASSED`.
+5. Judge-clean: zero `judged_block` and zero `human_blocked` (vacuous when judge layer is off).
+6. Tests-passed: a recognizable `N passed[, 0 failed]` in `implementation-report.md`.
+
+When all six pass, the script writes `manager-decision.md` with `**Decision: PROMOTE**` and a citation block. The manager stage detects the preset and short-circuits the human gate — you only see the manager gate when something needs your attention. When any condition fails, the script writes `auto-promote-report.md` naming the failing conditions and the manager stage runs normally with the human gate active.
+
+### Pre-edit fact-forcing in executor
+
+Before the executor's first edit/write to any file in a run, it must produce a fact block (importers/callers, public API affected, data schema touched, manifest goal quoted verbatim) — either inline in `implementation-report.md` or in `.agent-runs/<run-id>/notes/pre-edit-<filename>.md`. The drift-detector and critic check for the block; a missing block on any touched file is a finding.
+
+This is the v0.5 substitute for "tell the agent to read carefully." Asking is useless; demanding a written artifact forces the investigation.
+
+### Strict manifest schema validation
+
+`scripts/policy/check_manifest_schema.py` enforces:
+
+- `goal` ≥ 30 chars, no forbidden status words (`done`, `complete`, `ready`, `shippable`, `taggable`)
+- `definition_of_done` ≥ 80 chars, same word ban
+- `expected_outputs` non-empty
+- `non_goals` non-empty
+- `rollback_plan` non-empty
+- Broad `allowed_paths` (top-level directory like `src/`) requires non-empty `forbidden_paths`
+
+The check fires both at run-start (Phase A2 in `/run-pipeline`) AND inside the policy stage (defense in depth). Fuzzy manifests fail at the gate before they cascade into downstream work.
+
+### Honest limit
+
+Single-model-family blind spots correlate. If both the executor and the critic share a wrong assumption that fits the manifest, both sign off and auto-promote fires green. Dual-AI (v0.3 `/audit-init`) is the only structural defense against this. **Recommended mitigation:** periodic sample audit by a different model family on a weekly cadence. The v0.5 single-AI release does not replace v0.3; it provides single-AI projects a credible alternative when a second model family is not available.
+
+### When auto-promote refuses
+
+`auto-promote-report.md` names exactly which condition(s) failed. Typical fixes:
+
+- **Verifier-clean fails:** open `verifier-report.md`, address every NOT MET / PARTIAL criterion. Then re-run the verifier stage.
+- **Critic-clean fails:** open `critic-report.md`. Blocker or critical findings need to be addressed in code or in the manifest before the run promotes. Minor findings don't block.
+- **Drift-clean fails:** open `drift-report.md`. Blocker drift typically means a durable doc lies about the change — fix the doc.
+- **Policy fails:** open `policy-report.md`. Same as pre-v0.5 — fix the violation.
+- **Tests-passed fails:** the implementation-report.md doesn't have a recognizable test-passing signal. Re-run tests, paste output, re-run executor stage with the fix.
+
+Re-running `/run-pipeline <type> <run-id>` after fixing the underlying issue picks up at the failing stage thanks to the append-only `run.log`.
 
 ---
 

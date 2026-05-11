@@ -238,7 +238,13 @@
       <div class="arrow">→</div>
       <div class="stage agent"><strong>verify</strong><span>verifier</span></div>
       <div class="arrow">→</div>
-      <div class="stage human"><strong>manager</strong><span>human gate</span></div>
+      <div class="stage agent"><strong>drift-detect</strong><span>v0.5</span></div>
+      <div class="arrow">→</div>
+      <div class="stage agent"><strong>critique</strong><span>v0.5</span></div>
+      <div class="arrow">→</div>
+      <div class="stage policy"><strong>auto-promote</strong><span>v0.5</span></div>
+      <div class="arrow">→</div>
+      <div class="stage human"><strong>manager</strong><span>human gate · auto-fires on clean v0.5 runs</span></div>
     </div>
     <div class="legend">
       <div class="legend-item">
@@ -293,11 +299,11 @@
   <div class="grid">
     <div class="card">
       <h3>Three explicit gates</h3>
-      <p>Manifest, plan, manager-decision. No autonomous-mode-by-stealth. Every gate is a one-question prompt.</p>
+      <p>Manifest, plan, manager-decision. No autonomous-mode-by-stealth. Every gate is a one-question prompt. On clean runs at v0.5, machine-checkable auto-promote collapses the manager gate so you only see it when something needs your attention.</p>
     </div>
     <div class="card">
       <h3>Automated policy stage</h3>
-      <p>Blocks the run if changes fall outside <code>allowed_paths</code>, contain TODO/FIXME/HACK, or modify an existing ADR.</p>
+      <p>Blocks the run if the manifest fails strict schema validation (v0.5), changes fall outside <code>allowed_paths</code>, the diff contains TODO/FIXME/HACK, or an existing ADR was modified.</p>
     </div>
     <div class="card">
       <h3>Independent verifier</h3>
@@ -456,7 +462,7 @@
 <section>
   <h2>Stability posture</h2>
   <p>
-    At v0.4, the structural pattern has shipped across multiple projects
+    At v0.5, the structural pattern has shipped across multiple projects
     (CivicCast, CivicSuite, AgentSuiteLocal) and absorbed real failure
     receipts into its defaults. Slash-command edge cases still surface in
     new codebases before they surface in mine — open an issue or a
