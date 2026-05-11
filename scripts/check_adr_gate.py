@@ -24,7 +24,30 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def _find_repo_root() -> Path:
+    """Resolve the repo root regardless of which supported layout the
+    script is running from. Same logic as check_no_todos.py (PR #7).
+
+    Two supported layouts:
+      * **Plugin source** — ``<repo>/scripts/check_adr_gate.py``.
+        The repo root is the immediate parent of the ``scripts/`` dir.
+      * **Installed project** — ``<repo>/scripts/policy/check_adr_gate.py``.
+        After ``/pipeline-init`` copies the script under
+        ``scripts/policy/``, the repo root is two directories up.
+
+    PR #7 applied this fix to check_no_todos.py. The dogfood run on
+    2026-05-11 surfaced that check_allowed_paths.py and check_adr_gate.py
+    still had the original hard-coded ``parents[2]`` and silently
+    resolved above the plugin repo when run from the plugin source
+    layout. This commit ports the same fix to both scripts.
+    """
+    script_dir = Path(__file__).resolve().parent
+    if script_dir.name == "policy" and script_dir.parent.name == "scripts":
+        return script_dir.parents[1]
+    return script_dir.parent
+
+
+REPO_ROOT = _find_repo_root()
 ADR_PREFIX = "docs/adr/"
 
 
