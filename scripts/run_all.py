@@ -27,6 +27,7 @@ THIS_DIR = Path(__file__).resolve().parent
 # Order matters only for human readability of the combined report.
 # Add project-specific checks here (e.g., a custom check_module_boundaries.py).
 CHECKS: list[tuple[str, list[str]]] = [
+    ("check_manifest_schema", ["check_manifest_schema.py"]),
     ("check_allowed_paths", ["check_allowed_paths.py"]),
     ("check_no_todos", ["check_no_todos.py"]),
     ("check_adr_gate", ["check_adr_gate.py"]),
@@ -48,11 +49,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    extra_for_allowed_paths = ["--run", args.run] if args.run else []
+    extra_for_run_consumers = ["--run", args.run] if args.run else []
+    # Checks that consume the run id (read manifest at .agent-runs/<run>/manifest.yaml).
+    run_consumers = {"check_allowed_paths", "check_manifest_schema"}
 
     results: list[tuple[str, bool, str]] = []
     for name, script_args in CHECKS:
-        extra = extra_for_allowed_paths if name == "check_allowed_paths" else []
+        extra = extra_for_run_consumers if name in run_consumers else []
         passed, output = _run(name, script_args, extra)
         results.append((name, passed, output))
 

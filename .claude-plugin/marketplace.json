@@ -6,15 +6,15 @@
     "email": "sconverse@gmail.com"
   },
   "metadata": {
-    "version": "0.4.0",
+    "version": "0.5.0",
     "homepage": "https://scottconverse.github.io/agentic-pipeline/",
     "repository": "https://github.com/scottconverse/agentic-pipeline"
   },
   "plugins": [
     {
       "name": "agentic-pipeline",
-      "description": "Multi-stage agent pipeline runner. /pipeline-init onboards a project; /new-run + /run-pipeline orchestrate research → plan → test-write → execute → policy → verify → manager with three human-approval gates. v0.2 adds the module-release pipeline (Phase 0 infrastructure preflight + Phase 2 local rehearsal + self-classification rules). v0.3 adds the dual-AI audit-handoff discipline (/audit-init scaffolds shared 5-lens self-audit + audit gate + audit protocol for projects where one AI implements and a different AI audits). v0.4 adds the judge layer — opt-in real-time action supervision inside the executor stage; classify → judge → execute inner loop with four verdicts (allow / block / revise / escalate), context-isolated from the executor's reasoning chain.",
-      "version": "0.4.0",
+      "description": "Multi-stage agent pipeline runner. /pipeline-init onboards a project; /new-run + /run-pipeline orchestrate research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager. v0.2 adds the module-release pipeline. v0.3 adds the dual-AI audit-handoff discipline. v0.4 adds the judge layer — opt-in real-time action supervision in the executor stage with four verdicts (allow/block/revise/escalate). v0.5 adds single-AI hardening: critic + drift-detector stages, pre-edit fact-forcing, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation.",
+      "version": "0.5.0",
       "source": "./",
       "author": {
         "name": "Scott Converse",

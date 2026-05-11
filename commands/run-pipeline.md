@@ -26,11 +26,13 @@ If `$ARGUMENTS` does not contain exactly two tokens, stop and report usage: `/ru
 
 Read `.pipelines/<pipeline-type>.yaml`. Parse the stages list in document order. Each stage has these fields:
 
-- `name` — string, e.g. `manifest`, `research`, `policy`
-- `role` — one of `human`, `pipeline`, `researcher`, `planner`, `test-writer`, `executor`, `verifier`, `manager`
+- `name` — string, e.g. `manifest`, `research`, `policy` (or `id` in `module-release.yaml`'s richer schema)
+- `role` — one of `human`, `pipeline`, `researcher`, `planner`, `test-writer`, `executor`, `verifier`, `drift-detector`, `critic`, `manager`
 - `artifact` — filename written under `.agent-runs/<run-id>/`
 - `gate` (optional) — `human_approval` if a human must sign off after the stage produces its artifact
 - `command` (optional) — only on `role: pipeline` stages; the shell command to execute
+- `optional_artifact` (optional, v0.5) — if `true`, the absence of the named artifact does NOT fail the stage. Used by the `auto-promote` stage: it writes `auto-promote-report.md` only when NOT_ELIGIBLE; when ELIGIBLE, it writes `manager-decision.md` instead, and the named artifact may be absent.
+- `auto_promote_aware` (optional, v0.5) — if `true`, the runner checks for an auto-promote preset before spawning this stage's agent. When `.agent-runs/<run-id>/manager-decision.md` exists with `**Decision: PROMOTE**` as its literal first line, the human-approval gate is satisfied automatically and the manager subagent is invoked only to validate-and-append, not to re-decide.
 
 If the YAML is missing or unparseable, stop and report.
 
@@ -39,6 +41,8 @@ If the YAML is missing or unparseable, stop and report.
 Read `.agent-runs/<run-id>/manifest.yaml`. If it does not exist, stop and tell the user to run `/new-run <pipeline-type> <slug>` first.
 
 Inspect the manifest text. The `goal:` line must contain a non-empty quoted string. If it is `goal: ""`, stop and tell the user to fill in the manifest before starting the pipeline.
+
+**v0.5 strict schema validation:** before any stage runs, invoke `python scripts/policy/check_manifest_schema.py --run <run-id>` via Bash. If it exits non-zero, append `<TS> | manifest-schema | FAILED | see stdout` to `run.log`, display the violation output to the user, and STOP the pipeline. This catches fuzzy manifests at the start of the run rather than letting them cascade through researcher/planner/executor before the policy stage discovers them.
 
 ### A3. Read the run log (resume state)
 
@@ -103,15 +107,18 @@ Steps:
 
 ### Handler 2 — `role: pipeline` with a `command`
 
-The standard stage of this type is `policy`. It runs `python scripts/policy/run_all.py --run <run-id>`.
+The standard stages of this type are `policy` and (v0.5) `auto-promote`. They run the command named in the stage's `command` field.
 
 Steps:
 
 1. Substitute `{run_id}` in the `command` field with the actual run id.
 2. Use the Bash tool to run the command from the repo root. Capture both stdout and stderr (`2>&1`). Save the combined output.
-3. Write the captured output to `.agent-runs/<run-id>/<artifact_filename>` (use the Write tool — do not use shell redirection because the orchestrator must see the output too).
-4. If the Bash exit code is `0`: append `<TS> | <stage_name> | COMPLETE | command exit 0` to `run.log` and continue.
-5. If the exit code is non-zero: append `<TS> | <stage_name> | FAILED | see <artifact_filename>` to `run.log`, display the report content to the user, and STOP the pipeline.
+3. **Artifact handling** depends on the stage:
+   - For regular pipeline stages (no `optional_artifact`): Write the captured output to `.agent-runs/<run-id>/<artifact_filename>` (use the Write tool — do not use shell redirection because the orchestrator must see the output too).
+   - For stages with `optional_artifact: true` (v0.5 `auto-promote`): the command writes its own outputs (either `manager-decision.md` on success or `auto-promote-report.md` on failure). The orchestrator does NOT write the captured output; it leaves whatever the command produced in place. The captured stdout is still displayed to the user for transparency.
+4. **Exit code handling** also depends on the stage:
+   - For regular pipeline stages: If the Bash exit code is `0`: append `<TS> | <stage_name> | COMPLETE | command exit 0` to `run.log` and continue. If non-zero: append `<TS> | <stage_name> | FAILED | see <artifact_filename>` to `run.log`, display the report content, and STOP the pipeline.
+   - For the v0.5 `auto-promote` stage specifically: BOTH exit codes 0 and 1 advance the pipeline. Exit 0 means ELIGIBLE (manager-decision.md was preset); exit 1 means NOT_ELIGIBLE (auto-promote-report.md names which conditions failed; the manager stage will run with the human gate). Append `<TS> | <stage_name> | COMPLETE | auto-promote ELIGIBLE` or `<TS> | <stage_name> | COMPLETE | auto-promote NOT_ELIGIBLE` accordingly. Exit code 2 (run dir not found) is a real failure and STOPS the pipeline.
 
 ### Handler 3 — agent role (`researcher`, `planner`, `test-writer`, `executor`, `verifier`, `manager`)
 
@@ -260,13 +267,29 @@ When the executor subagent finishes (whether by writing its artifact normally OR
 
 5. If the executor completed normally and the artifact exists: append `<TS> | execute | COMPLETE | implementation-report.md written; judge intercepted <N> action(s)` to `run.log` and continue to the next stage.
 
+### Handler 4 — `role: manager` with `auto_promote_aware: true` (v0.5)
+
+This handler replaces both Handler 1 (human gate) and Handler 3 (agent role) for the manager stage when the stage YAML sets `auto_promote_aware: true`. It checks for an auto-promote preset before deciding whether to invoke the manager subagent and whether to fire the human gate.
+
+Steps:
+
+1. **Check for preset.** Use the Read tool: read `.agent-runs/<run-id>/manager-decision.md`. If the read succeeds AND the file's first non-empty line is exactly `**Decision: PROMOTE**`, the auto-promote stage already wrote the verdict. Proceed to step 2. Otherwise, jump to step 4.
+2. **Spawn manager subagent in validate-and-append mode.** Use the standard Handler 3 spawn (role file + run context + working directory), but the prompt's tail instructs the agent: "An auto-promote preset already wrote `**Decision: PROMOTE**`. Validate the six citations in the existing file match the artifacts (verifier-report.md, critic-report.md, drift-report.md, policy-report.md, judge-metrics.yaml or 'judge not active', implementation-report.md). Append a `## Manager confirmation` section listing what you validated. DO NOT REWRITE the first line. DO NOT change the verdict."
+3. **Skip the human gate.** When the preset is present and the manager subagent appends confirmation cleanly, append `<TS> | manager | COMPLETE | auto-promoted by scripts/policy/auto_promote.py, manager confirmed` to `run.log`. Do NOT use `AskUserQuestion`. The pipeline advances. Report to the user: "Manager stage auto-promoted; the six v0.5 conditions all passed. See `.agent-runs/<run-id>/manager-decision.md` for the citation block."
+4. **No preset — fall through to standard handling.** Run Handler 3 (spawn the manager subagent normally) followed by Handler 1's human-approval gate logic (`AskUserQuestion` with APPROVE / Block). If the auto-promote stage wrote `auto-promote-report.md`, include its contents in the manager subagent's context so the manager can see which conditions failed.
+
+The runner uses Handler 4 ONLY when the stage's YAML sets `auto_promote_aware: true`. The pre-v0.5 feature.yaml and bugfix.yaml that don't have this flag continue to route the manager stage through Handler 3 + Handler 1 unchanged.
+
+**Auto-promote eligibility is per-run, not per-pipeline.** Even when `auto_promote_aware: true` is set on the YAML, the eligibility check fires only when `auto_promote.py` produced the preset. If any of the six conditions failed, the human gate fires as usual.
+
 ### Stop conditions
 
 The loop stops on the FIRST of:
 
-- A `BLOCKED` outcome at any human gate (handler 1)
+- A `BLOCKED` outcome at any human gate (handler 1 or handler 4 fall-through)
 - A `FAILED` outcome at the policy stage (handler 2)
 - A `FAILED` outcome at any agent stage (handler 3)
+- A failed manifest schema validation at A2 (v0.5)
 - All stages have `COMPLETE` log entries — fall through to Phase C
 
 Never advance past a non-`COMPLETE` stage. Never rewrite or delete an existing log entry.

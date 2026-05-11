@@ -446,7 +446,58 @@ The judge catches what the others can't: real-time interception of irreversible 
 
 ---
 
-## 8. The run.log resume mechanism
+## 8. Single-AI hardening (v0.5) — critic, drift-detector, auto-promote
+
+The v0.5 release adds three new stages to the pipeline that compensate for dropping dual-AI cross-family verification. They run between `verify` and `manager`:
+
+```
+verify → drift-detect → critique → auto-promote → manager
+```
+
+Each is a structural substitute for a different aspect of the dual-AI handoff that v0.3 enables but does not enforce inside the pipeline.
+
+### drift-detector
+
+A read-only role that compares the manifest's contract (`goal`, `expected_outputs`, `definition_of_done`, `non_goals`) against the assembled final state of the run — durable docs included (`CHANGELOG.md`, `README.md`, `USER-MANUAL.md`, ADRs, any project HANDOFF). It catches the gap class neither the judge (per-action) nor the verifier (per-criterion) can see: documents that say one thing while code says another, top-level ledger totals that don't match row counts, version strings out of sync across `pyproject.toml` / `__init__.py` / `CHANGELOG.md`, status-word abuse, "Closed" without evidence.
+
+The role emits a structured `**Drift: <total> total, <blocker> blocker**` count line that the `auto-promote` stage parses directly. Blocker drift forbids auto-promotion regardless of other conditions.
+
+### critic
+
+A hostile cold read of every artifact in the run, in a fresh context. The critic role file is deliberately adversarial: hard rules forbid encouragement, severity softening, "no findings" without per-lens evidence, and trusting the verifier or executor at face value. The critic walks six lenses — engineering, UX, tests, docs, QA, scope — and emits a `**Findings: <total> total, <blocker> blocker, <critical> critical, <major> major, <minor> minor**` count line that `auto-promote` parses.
+
+The critic is the structural substitute for the v0.3 cross-agent auditor when running with a single AI. Same model family, fresh context, contrarian role contract.
+
+### auto-promote
+
+A `role: pipeline` stage that runs `scripts/auto_promote.py`. It reads the artifacts produced by verifier, critic, drift-detector, policy, judge (when active), and executor, then checks six conditions:
+
+1. Verifier-clean: zero `NOT MET` and zero `PARTIAL` criteria.
+2. Critic-clean: zero blocker findings and zero critical findings.
+3. Drift-clean: zero blocker drift items.
+4. Policy-passed: `POLICY: ALL CHECKS PASSED` in `policy-report.md`.
+5. Judge-clean: zero `judged_block` and zero `human_blocked` dispositions (vacuous when the v0.4 judge layer is inactive).
+6. Tests-passed: a recognizable `N passed[, 0 failed]` or `all tests passed` signal in `implementation-report.md`.
+
+When all six pass, the script writes a preset `manager-decision.md` with `**Decision: PROMOTE**` and a citation block naming the evidence for each condition. The manager stage detects the preset (per Handler 4 in `commands/run-pipeline.md`) and short-circuits the human-approval gate, advancing the pipeline automatically.
+
+When any condition fails, the script writes `auto-promote-report.md` naming which conditions failed and exits 1. The manager stage runs normally with the human-approval gate active.
+
+### Pre-edit fact-forcing in executor
+
+The executor role file now contains a "Pre-edit fact-forcing gate" section. Before the first edit/write to any file in the run, the executor must produce a structured fact block (importers/callers, public API affected, data schema touched, manifest goal quoted verbatim). The drift-detector and critic both verify the block exists for every touched file.
+
+### Manifest schema validation
+
+`scripts/check_manifest_schema.py` enforces structural minimums on the manifest: `goal` ≥ 30 chars, `definition_of_done` ≥ 80 chars, non-empty `expected_outputs` / `non_goals` / `rollback_plan`, broad `allowed_paths` requires non-empty `forbidden_paths`, forbidden status words banned. Runs both at Phase A2 (run-start) and in the policy stage.
+
+### Honest limit — single-model-family correlated blind spots
+
+Critic and verifier run in the same model family. If both share a wrong assumption that fits the manifest, both sign off, auto-promote fires green, and the work ships wrong. Dual-AI (v0.3 cross-family audit) is the only structural defense against this. The v0.5 release does not replace v0.3; it provides single-AI projects a credible alternative when a second model family is not available. Recommended mitigation: periodic sample audit by a different model family on a weekly cadence.
+
+---
+
+## 9. The run.log resume mechanism
 
 The `run.log` is the source of truth for "what's done." It is
 append-only. Each line is one stage outcome. The orchestrator parses it
@@ -489,7 +540,7 @@ This means:
 
 ---
 
-## 9. File layout — every file explained
+## 10. File layout — every file explained
 
 ```
 agentic-pipeline/                        # the plugin
@@ -563,7 +614,7 @@ After `/pipeline-init`, your project gets:
 
 ---
 
-## 10. Extension points
+## 11. Extension points
 
 The plugin is designed for projects to extend, not fork. The places to
 extend:
@@ -592,7 +643,7 @@ Anti-patterns to avoid:
 
 ---
 
-## 11. Why these defaults
+## 12. Why these defaults
 
 Several non-obvious defaults exist because of real failures from prior
 projects.
@@ -615,7 +666,7 @@ decision worth recording in your project's `docs/adr/` directory.
 
 ---
 
-## 12. Sequence summary — what happens end-to-end
+## 13. Sequence summary — what happens end-to-end
 
 ```mermaid
 sequenceDiagram
@@ -660,7 +711,7 @@ sequenceDiagram
 
 ---
 
-## 13. Glossary
+## 14. Glossary
 
 - **Manifest** — the human-authored contract for a single run. Lists
   goal, allowed paths, forbidden paths, non-goals, expected outputs,

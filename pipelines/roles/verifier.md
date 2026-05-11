@@ -17,7 +17,17 @@ You are a verifier in the agentic pipeline. Your only job is to check the implem
 
 Write **`.agent-runs/<run-id>/verifier-report.md`** with these sections:
 
-1. **Manifest exit criteria** — every item from `manifest.expected_outputs` and `manifest.definition_of_done`, each with one of: **MET** / **PARTIAL** / **NOT MET** / **NOT APPLICABLE**. For every non-MET, an evidence line citing the file, the test, or the missing artifact.
+0. **Criteria count line** — a single line in this exact format (parsed by `auto_promote.py`):
+
+   ```
+   **Criteria: <total> total, <met> MET, <partial> PARTIAL, <not_met> NOT MET, <na> NOT APPLICABLE**
+   ```
+
+   Example: `**Criteria: 5 total, 4 MET, 1 PARTIAL, 0 NOT MET, 0 NOT APPLICABLE**`
+
+   The numbers must add up. The auto-promote script reads this line directly; a missing or malformed line treats this stage as failed.
+
+1. **Manifest exit criteria** — every item from `manifest.expected_outputs` and `manifest.definition_of_done`, each with one of: **MET** / **PARTIAL** / **NOT MET** / **NOT APPLICABLE**. For every non-MET, an evidence line citing the file, the test, or the missing artifact. Use the literal markdown headers `- **MET**:`, `- **PARTIAL**:`, `- **NOT MET**:`, `- **NOT APPLICABLE**:` so the count line in §0 can be cross-checked by simple parsing.
 2. **Tests** — count of new tests in failing-tests-report.md and the count now passing per implementation-report.md. They must match. If implementation-report.md claims tests pass, run them yourself and confirm.
 3. **Lint, format, types** — run the project's lint, format-check, and type-check commands. Paste the head and tail of each output. All must be clean.
 4. **Policy gate** — run `python scripts/policy/run_all.py --run <run-id>`. Confirm `POLICY: ALL CHECKS PASSED`. If not, name the failing check and quote the violation lines.
