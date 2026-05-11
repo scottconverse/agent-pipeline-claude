@@ -1,7 +1,7 @@
 {
   "name": "agentic-pipeline",
-  "version": "0.1.0-beta",
-  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → manager with three human-approval gates. Includes /pipeline-init for onboarding new or existing projects from a PRD, a repo URL, or a description paragraph.",
+  "version": "0.2.0",
+  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → manager with three human-approval gates. v0.2 adds the module-release pipeline with Phase 0 infrastructure preflight, Phase 2 local rehearsal, and pre-authorized self-classification rules — built from real release-cascade failures.",
   "author": {
     "name": "Scott Converse",
     "email": "sconverse@gmail.com"

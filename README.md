@@ -80,6 +80,27 @@ Once a project is initialized:
 
 Three human-approval gates per run: manifest, plan, manager-decision. Each is a one-question prompt: APPROVE or describe what should change.
 
+## v0.2: The `module-release` pipeline
+
+For work whose end-state is a published release artifact (module version bump, dependency migration), use `module-release` instead of `feature`. It adds two stages that prevent the most expensive class of failure: cascading discovery of pre-existing CI infrastructure bugs during the remote release run.
+
+```
+/new-run module-release my-module-v1.2.0-migration
+/run-pipeline module-release 2026-05-11-my-module-v1.2.0-migration
+```
+
+The pipeline runs six phases:
+- **Phase 0 — Preflight auditor.** Audits the module's release workflow before any product code is touched. YAML parse, workflow run health, referenced scripts exist, local `verify-release.sh` on fresh state, cross-platform reality check, diagnostic instrumentation, audit-punchlist correlation. Bugs found are bundled into ONE PR. See `pipelines/roles/preflight-auditor.md`.
+- **Phase 1 — Scoped product work.** The executor role with pre-authorized self-classification rules (LIVE-STATE / FROZEN-EVIDENCE / SHAPE-GUARD / OWN-MODULE-VERSION for grep hits; MECHANICAL-CI-BUG / CONTRACT-CHANGE / ENVIRONMENTAL / NOVEL for failures) so the agent doesn't halt-and-ask on routine cases. See `pipelines/self-classification-rules.md`.
+- **Phase 2 — Local release rehearsal.** Mirrors the CI environment and runs the release sequence locally on fresh state before tag push. The workflow becomes the *execution* mechanism, not the *discovery* mechanism. See `pipelines/roles/local-rehearsal.md`.
+- **Phase 3 — Remote release + umbrella reconciliation.** Tag push, release workflow watch, umbrella PR through the project's release-lockstep gate.
+- **Phase 4 — Verifier.** Independent fresh-context check of all release artifacts and durable docs.
+- **Phase 5 — Manager.** Final PROMOTE/BLOCK/REPLAN with verifier evidence cited verbatim.
+
+Human gates at Phase 0 results review, Phase 2 rehearsal-ok, and Phase 5 release-ok.
+
+**Operator reference:** `docs/module-release-handbook.md` covers initial setup, expected timing per sprint type, and an honest "what this pipeline does NOT prevent" section. Originating failure receipts are documented in the handbook so future operators understand why each stage exists.
+
 ## What this plugin will NOT do
 
 - It will not propose autonomous mode. Every gate is explicit.

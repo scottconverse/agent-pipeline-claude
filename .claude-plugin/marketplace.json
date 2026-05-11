@@ -6,15 +6,15 @@
     "email": "sconverse@gmail.com"
   },
   "metadata": {
-    "version": "0.1.0-beta",
+    "version": "0.2.0",
     "homepage": "https://scottconverse.github.io/agentic-pipeline/",
     "repository": "https://github.com/scottconverse/agentic-pipeline"
   },
   "plugins": [
     {
       "name": "agentic-pipeline",
-      "description": "Multi-stage agent pipeline runner. /pipeline-init onboards a project from a PRD, repo URL, or description; /new-run + /run-pipeline orchestrate research → plan → test-write → execute → policy → verify → manager with three human-approval gates.",
-      "version": "0.1.0-beta",
+      "description": "Multi-stage agent pipeline runner. /pipeline-init onboards a project from a PRD, repo URL, or description; /new-run + /run-pipeline orchestrate research → plan → test-write → execute → policy → verify → manager with three human-approval gates. v0.2 adds the module-release pipeline (Phase 0 infrastructure preflight + Phase 2 local rehearsal + self-classification rules).",
+      "version": "0.2.0",
       "source": "./",
       "author": {
         "name": "Scott Converse",
