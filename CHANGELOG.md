@@ -1,12 +1,45 @@
 # Changelog
 
-All notable changes to `agentic-pipeline` will be documented in this file.
+All notable changes to `agent-pipeline-claude` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/) once it
 leaves beta. While in `0.1.x-beta`, breaking changes to slash-command
 arguments, manifest fields, or role-file contracts may land in any
 release; the `CHANGELOG` will call them out.
+
+## [0.5.2] — 2026-05-11
+
+Rename + scope-narrowing release. The plugin is now `agent-pipeline-claude` (was `agentic-pipeline`) and is published as a Claude Code plugin only. Codex Desktop App support has been removed from the upstream repo and will live in a separate downstream repo.
+
+### Changed
+
+- **Plugin rename.** `agentic-pipeline` → `agent-pipeline-claude` across all live files: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, the four policy scripts' `--version` strings, README / USER-MANUAL / ARCHITECTURE / CHANGELOG bodies, `docs/index.html` (landing page), discussion seed posts, command and role-file references. Historical CHANGELOG entries (v0.1-beta through v0.5.1) describe the same plugin under its previous name for continuity.
+- **Repo rename.** GitHub repo renamed `scottconverse/agentic-pipeline` → `scottconverse/agent-pipeline-claude`. GitHub redirects clone URLs and HTTP routes for the old name automatically; existing `/plugin install scottconverse/agentic-pipeline` references break only on plugin-marketplace tooling that doesn't follow HTTP redirects.
+- **Codex Desktop App support removed.** The Codex parallel implementation (skill files, `.codex-plugin/plugin.json`, `pipelines/templates/AGENTS.md`, `docs/codex-desktop-adaptation.md`) is not part of this release. Will be re-published as a separate downstream repo. References to Codex in audit-handoff documentation have been genericized — the dual-AI audit pattern (v0.3) still works with any second AI, but the plugin no longer ships Codex-specific scaffolding.
+- **`pipelines/roles/drift-detector.md` invariant 8a simplified.** The version-string-consistency invariant now describes a single plugin manifest (no Codex-side parallel). Clearer rules, no adapter-suffix edge cases.
+
+### Why this release exists
+
+The Codex Desktop App side and the Claude Code side had been entangled in one repo, with parallel plugin manifests, parallel orchestration logic, and a version-string invariant that had to handle both. The two sides have different runtime models, different distribution mechanisms, and different release cadences. Separating them removes the entanglement and lets each side ship on its own schedule.
+
+`0.5.2` rather than `0.6.0` because the surface area of the plugin (commands, roles, policy scripts, pipeline definitions, run state) is unchanged. The change is purely identity (name) and scope (single-runtime).
+
+### Migration
+
+Existing installs:
+
+```bash
+# Update the plugin reference
+/plugin uninstall agentic-pipeline
+/plugin install scottconverse/agent-pipeline-claude
+```
+
+Projects already initialized with `/pipeline-init` continue to work — the scaffolded `.pipelines/`, `scripts/policy/`, and `.agent-runs/<run-id>/` files are unchanged. Re-running `/pipeline-init` to refresh the scaffolded scripts is recommended but not required.
+
+The GitHub repo URL change propagates automatically via GitHub's redirect for git clone, but bookmarks to `https://github.com/scottconverse/agentic-pipeline` and `https://scottconverse.github.io/agentic-pipeline/` should be updated to use the new name.
+
+---
 
 ## [0.5.1] — 2026-05-11
 
@@ -28,7 +61,7 @@ The v0.5 dogfood run (`.agent-runs/2026-05-11-version-flag/`) had this exact gap
   - **8e Stability-posture currency** (`non-blocker`): any explicit current-release version reference in `docs/index.html` matches the current release.
 - Output checklist updated to require explicit PASS/FAIL on every standing invariant.
 - Drift item numbering shifted: §8 was Drift items; now §9. The count line in §2 was already abstracted across all numbered drift sections, so this is a forward-compatible rename.
-- `--version` flag bumped to `agentic-pipeline 0.5.1` on `scripts/auto_promote.py` and `scripts/check_manifest_schema.py`.
+- `--version` flag bumped to `agent-pipeline-claude 0.5.1` on `scripts/auto_promote.py` and `scripts/check_manifest_schema.py`.
 
 ### Stacking with v0.2, v0.3, v0.4, v0.5
 
@@ -52,7 +85,7 @@ The release is a structural substitute for the dual-AI audit-handoff discipline 
 - `pipelines/roles/drift-detector.md` — drift-detector role file. Fires after the verifier (before the critic). Compares manifest fields against the final assembled state. Catches the gap class neither the judge (per-action) nor the verifier (per-criterion) can see — durable doc drift, cross-file consistency, status-word abuse, ledger top-totals vs row counts, "Closed" without evidence. Emits parseable §2 count line (`**Drift: T total, B blocker**`).
 - `scripts/check_manifest_schema.py` — manifest schema validator. Wired into both run-pipeline.md Phase A2 (run-start, before any stage fires) and `scripts/run_all.py` CHECKS (policy stage, defense in depth). Rules: `goal` >= 30 chars, `definition_of_done` >= 80 chars, `expected_outputs` non-empty, `non_goals` non-empty, `rollback_plan` non-empty, broad `allowed_paths` requires non-empty `forbidden_paths`, forbidden status words (`done`, `complete`, `ready`, `shippable`, `taggable`) banned from goal/dod. The fuzzy-manifest class of failure now blocks at the gate before it cascades into downstream work.
 - `scripts/auto_promote.py` — machine-checkable promote decision. Reads verifier-report.md, critic-report.md, drift-report.md, policy-report.md, judge-metrics.yaml (when present), and implementation-report.md. Evaluates six conditions: verifier-clean (zero NOT MET, zero PARTIAL), critic-clean (zero blocker, zero critical), drift-clean (zero blocker), policy-passed, judge-clean (zero judged_block, zero human_blocked, vacuous when judge inactive), tests-passed. When all six pass, writes a preset `manager-decision.md` with `**Decision: PROMOTE**` and a citation block; otherwise writes `auto-promote-report.md` naming the failing conditions and exits 1.
-- `--version` flag on `scripts/auto_promote.py` and `scripts/check_manifest_schema.py`. Operators run either script with `--version` to print `agentic-pipeline 0.5.0` and confirm which release is installed. The flag uses argparse's built-in `action="version"`, so it fires before required-arg validation — `auto_promote.py --version` works without supplying `--run`. Output is `agentic-pipeline 0.5.0` on stdout, exit code 0. Added as the deliverable of the v0.5 self-dogfood pipeline run (`.agent-runs/2026-05-11-version-flag/`, gitignored), which exercised every new v0.5 stage end-to-end and validated the auto-promote short-circuit.
+- `--version` flag on `scripts/auto_promote.py` and `scripts/check_manifest_schema.py`. Operators run either script with `--version` to print `agent-pipeline-claude 0.5.0` and confirm which release is installed. The flag uses argparse's built-in `action="version"`, so it fires before required-arg validation — `auto_promote.py --version` works without supplying `--run`. Output is `agent-pipeline-claude 0.5.0` on stdout, exit code 0. Added as the deliverable of the v0.5 self-dogfood pipeline run (`.agent-runs/2026-05-11-version-flag/`, gitignored), which exercised every new v0.5 stage end-to-end and validated the auto-promote short-circuit.
 
 ### Changed
 
@@ -137,7 +170,7 @@ The dual-AI audit-handoff discipline. Built from the CivicCast `process/shared-a
 
 ### Added
 
-- `/audit-init` slash command. Scaffolds the three-artifact dual-AI audit infrastructure for a project: out-of-repo `<PROJECT>_AUDIT_GATE.md` and `<PROJECT>_AUDIT_PROTOCOL.md`, in-repo `<project>/docs/process/5-lens-self-audit.md` (lands via PR), plus per-agent wiring (Claude memory file / Codex skill addition).
+- `/audit-init` slash command. Scaffolds the three-artifact dual-AI audit infrastructure for a project: out-of-repo `<PROJECT>_AUDIT_GATE.md` and `<PROJECT>_AUDIT_PROTOCOL.md`, in-repo `<project>/docs/process/5-lens-self-audit.md` (lands via PR), plus per-agent wiring (Claude memory feedback file on the Claude side, runtime-equivalent project-context file on the second AI's side).
 - `pipelines/roles/cross-agent-auditor.md` — role file for the verifying agent. Mandatory 10-section output (Verdict / Claim Verification Matrix / Durable Artifact Reads / Substantive Content Checks / Drift Matrix / Working Tree & Remote State / Unreported Catches / Open Caveats / Paste-Ready Directive / Recommended Next Action). Status-word rules. Runtime confidence separation. Failure handling.
 - `pipelines/roles/implementer-pre-push.md` — role file for the implementing agent. Five lenses (Engineering / UX / Tests / Docs / QA). Artifact-state checklist. Post-push SHA-propagation step. Proof-anchor vs release-target distinction. Report format with mandatory 5-lens block.
 - `pipelines/templates/audit-gate-template.md` — short gate template with `<PROJECT_NAME>`, `<IMPLEMENTER_AGENT>`, `<AUDITOR_AGENT>`, `<AUDIT_PROTOCOL_PATH>` placeholders.
@@ -155,7 +188,7 @@ The dual-AI audit-handoff discipline. Built from the CivicCast `process/shared-a
 
 ### Role-agent symmetry
 
-The discipline is symmetric. Any agent can play either role. CivicCast uses Claude=implementer / Codex=auditor; CivicSuite uses Codex=implementer / Claude=auditor. `/audit-init` asks for role assignment and wires the per-agent pointers accordingly. Single-agent fallback is supported but loses the structural benefit.
+The discipline is symmetric. Any AI can play either role; the plugin runs in Claude Code, the second AI can be any tool that exposes a standing-instructions surface (project-context file, skill registration, custom-instruction field, etc.). `/audit-init` asks for role assignment and wires the per-agent pointers accordingly. Single-agent fallback is supported but loses the structural benefit.
 
 ### Stacking with v0.2
 
@@ -286,6 +319,6 @@ surface in your codebase before they surface in the maintainer's.
 - v0.3: a `--dry-run` flag on `/run-pipeline` that walks the stage
   list and prints what would happen without spawning agents.
 
-[0.3.0]: https://github.com/scottconverse/agentic-pipeline/releases/tag/v0.3.0
-[0.2.0]: https://github.com/scottconverse/agentic-pipeline/releases/tag/v0.2.0
-[0.1.0-beta]: https://github.com/scottconverse/agentic-pipeline/releases/tag/v0.1.0-beta
+[0.3.0]: https://github.com/scottconverse/agent-pipeline-claude/releases/tag/v0.3.0
+[0.2.0]: https://github.com/scottconverse/agent-pipeline-claude/releases/tag/v0.2.0
+[0.1.0-beta]: https://github.com/scottconverse/agent-pipeline-claude/releases/tag/v0.1.0-beta

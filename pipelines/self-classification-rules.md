@@ -108,6 +108,6 @@ CivicSuite v1.5.0 moved 4 times during recovery. The new pipeline targets ZERO m
 
 ## What this preserves vs. what changes
 
-These rules ARE NOT a relaxation of the safety gates. The original agentic-pipeline's halt-on-novelty is preserved for genuine novelty. The original lockstep-gate, allowed_paths, frozen-evidence skips, and append-only run log are all unchanged.
+These rules ARE NOT a relaxation of the safety gates. The original agent-pipeline-claude's halt-on-novelty is preserved for genuine novelty. The original lockstep-gate, allowed_paths, frozen-evidence skips, and append-only run log are all unchanged.
 
 What changes: the agent no longer halts on the long tail of mechanical CI fixes that humans would just apply without asking. The judgment is delegated, the scope is bounded, the audit trail is preserved.

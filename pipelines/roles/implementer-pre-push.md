@@ -129,4 +129,4 @@ A chat-side promise ("I will keep this in mind") is not a behavior change. The b
 - `<PROJECT>_AUDIT_PROTOCOL.md` (desktop level) — the verifying agent's protocol. Mandatory 10-section output, status-word rules, known drift patterns.
 - `<PROJECT>_AUDIT_GATE.md` (desktop level) — the short gate the verifier reads every turn.
 - `<project-repo>/docs/process/5-lens-self-audit.md` — the in-repo shared doc with project-specific artifact-state checklist items.
-- Project `CLAUDE.md` / `AGENTS.md` / Codex skill — names this discipline as the before-every-push rule.
+- Project `CLAUDE.md` (or the second AI's standing-instructions surface) — names this discipline as the before-every-push rule.

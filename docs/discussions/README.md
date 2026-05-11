@@ -1,6 +1,6 @@
 # Discussion board seed posts
 
-This directory holds the seed content for the project's GitHub Discussions board. Each file maps to one Discussions category and contains the announcement / starter post text. Paste the body of each file into the corresponding category on https://github.com/scottconverse/agentic-pipeline/discussions when announcing v0.4 (or any future release that meaningfully changes the project's shape).
+This directory holds the seed content for the project's GitHub Discussions board. Each file maps to one Discussions category and contains the announcement / starter post text. Paste the body of each file into the corresponding category on https://github.com/scottconverse/agent-pipeline-claude/discussions when announcing v0.4 (or any future release that meaningfully changes the project's shape).
 
 These are source-controlled because:
 
@@ -30,7 +30,7 @@ The Q&A, show-and-tell, and ideas seeds are evergreen — update them when the q
 
 When announcing v0.4:
 
-1. Open https://github.com/scottconverse/agentic-pipeline/discussions
+1. Open https://github.com/scottconverse/agent-pipeline-claude/discussions
 2. For each file above whose category exists on the board, create a new discussion in that category and paste the file's body. Pin the announcement and the roadmap.
 3. If a category doesn't exist yet, create it under Discussions → Manage categories first.
 4. Link back to this directory in each seeded post so future contributors can find the source.

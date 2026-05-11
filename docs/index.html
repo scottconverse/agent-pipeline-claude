@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>agentic-pipeline — structural discipline for agentic development</title>
-<meta name="description" content="A runtime-neutral plugin for Claude Code and Codex Desktop App that orchestrates multi-stage agentic work with manifest-driven runs, human-approval gates where decisions actually live, and instrumented audit stages that catch the drift class which silently ships the wrong product.">
+<title>agent-pipeline-claude — structural discipline for agentic development</title>
+<meta name="description" content="A Claude Code plugin that orchestrates multi-stage agentic work through a manifest-driven pipeline. Human-approval gates where decisions actually live. Instrumented audit stages that catch the drift class which silently ships the wrong product.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -264,11 +264,11 @@
 <body>
 
 <header class="masthead">
-  <div class="mark">agentic-pipeline</div>
+  <div class="mark">agent-pipeline-claude</div>
   <div class="meta">
-    <span>v0.6.0</span>
+    <span>v0.5.2</span>
     <span>Apache-2.0</span>
-    <span>Claude Code · Codex</span>
+    <span>Claude Code plugin</span>
   </div>
 </header>
 
@@ -279,8 +279,8 @@
     <div>
       <div class="runtime-tags">
         <div class="runtime-tag"><strong>Claude Code</strong></div>
-        <div class="runtime-tag"><strong>Codex Desktop App</strong></div>
-        <div class="runtime-tag">runtime-neutral</div>
+        <div class="runtime-tag">Apache-2.0</div>
+        <div class="runtime-tag">beta</div>
       </div>
       <h1 class="hero-title">
         Structural<br>
@@ -289,25 +289,24 @@
         development.
       </h1>
       <p class="hero-lede">
-        A plugin for Claude Code and Codex Desktop App that orchestrates
-        multi-stage agentic work through a manifest-driven pipeline.
-        Human-approval gates where decisions actually live. Instrumented
-        audit stages that catch the drift class which silently ships the
-        wrong product.
+        A Claude Code plugin that orchestrates multi-stage agentic work
+        through a manifest-driven pipeline. Human-approval gates where
+        decisions actually live. Instrumented audit stages that catch the
+        drift class which silently ships the wrong product.
       </p>
       <div class="hero-cta">
-        <a class="btn primary" href="https://github.com/scottconverse/agentic-pipeline">View on GitHub</a>
-        <a class="btn ghost" href="https://github.com/scottconverse/agentic-pipeline/blob/main/USER-MANUAL.md">Read the manual</a>
+        <a class="btn primary" href="https://github.com/scottconverse/agent-pipeline-claude">View on GitHub</a>
+        <a class="btn ghost" href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">Read the manual</a>
       </div>
     </div>
 
     <aside class="hero-meta">
-      <div class="row"><span>Release</span><strong class="rust">0.6.0</strong></div>
+      <div class="row"><span>Release</span><strong class="rust">0.5.2</strong></div>
       <div class="row"><span>Stages</span><strong>11</strong></div>
       <div class="row"><span>Human gates</span><strong>3</strong></div>
       <div class="row"><span>Role files</span><strong>13</strong></div>
       <div class="row"><span>Policy checks</span><strong>5</strong></div>
-      <div class="row"><span>Runtimes</span><strong>2</strong></div>
+      <div class="row"><span>Pipelines</span><strong>3</strong></div>
       <div class="row"><span>Status</span><strong>beta</strong></div>
     </aside>
   </div>
@@ -315,7 +314,7 @@
 
 <section class="diagram-wrap frame">
   <span class="frame-mark">Fig. 01 · Pipeline schematic</span>
-  <span class="frame-mark-right">v0.5+ · feature.yaml</span>
+  <span class="frame-mark-right">v0.5.2 · feature.yaml</span>
 
   <div class="figcap">
     <span class="label">Eleven stages · four phases · three gates</span>
@@ -323,7 +322,7 @@
   </div>
 
   <div class="diagram-scroll">
-  <svg class="diagram" viewBox="0 0 1400 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agentic-pipeline schematic: eleven stages organized into four phases with three human-approval gates">
+  <svg class="diagram" viewBox="0 0 1400 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-pipeline-claude schematic: eleven stages organized into four phases with three human-approval gates">
     <defs>
       <style>
         .ink { fill: #0e0e0d; }
@@ -502,7 +501,7 @@
         decisions silently rather than surfacing them for review.
       </p>
       <p>
-        agentic-pipeline enforces a structural pattern that catches every
+        agent-pipeline-claude enforces a structural pattern that catches every
         one of those — not by hoping the agent is well-behaved, but by
         making the well-behaved path the only path. Every stage produces
         a durable artifact under <code>.agent-runs/&lt;run-id&gt;/</code>;
@@ -524,22 +523,21 @@
   <div class="editorial-grid">
     <div class="section-num"><strong>§ 02</strong>Install in<br>thirty seconds</div>
     <div class="section-body">
-      <h2>One pipeline. Two runtimes. The same contract.</h2>
+      <h2>One command. Then orient. Then run.</h2>
       <p class="sans">
-        The structural pattern is runtime-neutral. The <code>.pipelines/</code>
-        definitions, <code>scripts/policy/</code> checks, manifest schema,
-        role files, and <code>.agent-runs/&lt;run-id&gt;/</code> state work
-        identically under either runtime. A run started in one can be
-        resumed in the other.
+        Install once across all projects. From any project root — empty
+        directory, fresh clone, or a working repo — run
+        <code>/pipeline-init</code>. It asks one question (PRD path, repo
+        URL, or description paragraph), produces a project-orientation
+        summary, and scaffolds <code>.pipelines/</code>,
+        <code>scripts/policy/</code>, and a starter <code>CLAUDE.md</code>
+        if one is not present.
       </p>
 
-      <div class="install"><pre><span class="comment"># Claude Code — one-time install</span>
-<span class="prompt">›</span> /plugin install scottconverse/agentic-pipeline
+      <div class="install"><pre><span class="comment"># Install once, across all Claude Code projects</span>
+<span class="prompt">›</span> /plugin install scottconverse/agent-pipeline-claude
 
-<span class="comment"># Codex Desktop App — clone, install as local plugin</span>
-<span class="prompt">$</span> git clone https://github.com/scottconverse/agentic-pipeline.git
-
-<span class="comment"># Then in any project root, in either runtime:</span>
+<span class="comment"># Then in any project root</span>
 <span class="prompt">›</span> /pipeline-init
 <span class="prompt">›</span> /new-run feature <span style="color:#8e8a80;">&lt;task-slug&gt;</span>
 <span class="comment">›  ... fill in the manifest the plugin scaffolds ...</span>
@@ -547,12 +545,12 @@
 
       <div class="runtimes">
         <div>
-          <h4>Claude Code</h4>
-          <p>Slash commands invoke isolated subagents per stage. Three explicit gates surface as one-question prompts in the IDE. The judge layer (v0.4 opt-in) intercepts executor tool calls in real time.</p>
+          <h4>Slash commands</h4>
+          <p>Four commands cover the full surface: <code>/pipeline-init</code> onboards a project, <code>/new-run</code> initializes a run manifest, <code>/run-pipeline</code> orchestrates the eleven stages with resume-from-log, <code>/audit-init</code> scaffolds the v0.3 dual-AI audit-handoff discipline.</p>
         </div>
         <div>
-          <h4>Codex Desktop App <span class="badge">v0.6</span></h4>
-          <p>Five Codex skills implement the equivalent orchestration. Same role briefs, same manifest schema, same policy checks, same run state. Single-AI hardening (v0.5) applies in full.</p>
+          <h4>Subagent isolation</h4>
+          <p>Each agent stage runs as an isolated Claude subagent with no parent-conversation memory. The orchestrator passes a role file plus run context as the entire prompt. The judge layer (v0.4 opt-in) intercepts proposed executor tool calls and routes high-risk actions through a context-isolated judge subagent before they execute.</p>
         </div>
       </div>
     </div>
@@ -607,11 +605,11 @@
         </div>
 
         <div class="layer current">
-          <div class="v">v0.6<strong>Runtime-neutral</strong><span class="badge">Current</span></div>
+          <div class="v">v0.5.2<strong>Rename + scope</strong><span class="badge">Current</span></div>
           <div>
-            <div class="l-title">Codex Desktop App support, additive.</div>
-            <p class="l-body">The structural pattern was always runtime-neutral. v0.6 ships the parallel Codex Desktop App side: five Codex skills under <code>skills/</code>, a Codex plugin manifest, and an <code>AGENTS.md</code> scaffold for projects that run under either AI. Claude Code behavior is unchanged.</p>
-            <div class="l-catches"><strong>Adds</strong> A second runtime for the same pipeline contract. Run state is portable; a run started in one runtime can be resumed in the other.</div>
+            <div class="l-title">Plugin renamed to <code>agent-pipeline-claude</code>. Claude Code only.</div>
+            <p class="l-body">The plugin is now scoped specifically to Claude Code. The structural surface — commands, role files, policy scripts, pipeline definitions, run-state convention — is unchanged from v0.5.1. The dual-AI audit-handoff discipline (v0.3) still pairs Claude with any second AI; the second AI now lives in its own downstream repo rather than entangled with this one.</p>
+            <div class="l-catches"><strong>Removes</strong> Cross-runtime entanglement. Each runtime can now ship on its own cadence.</div>
           </div>
         </div>
       </div>
@@ -665,21 +663,21 @@
 <section class="page colophon">
   <div class="col">
     <h4>Documentation</h4>
-    <a href="https://github.com/scottconverse/agentic-pipeline/blob/main/README.md">README</a>
-    <a href="https://github.com/scottconverse/agentic-pipeline/blob/main/USER-MANUAL.md">User Manual</a>
-    <a href="https://github.com/scottconverse/agentic-pipeline/blob/main/ARCHITECTURE.md">Architecture</a>
-    <a href="https://github.com/scottconverse/agentic-pipeline/blob/main/CHANGELOG.md">Changelog</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/README.md">README</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">User Manual</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/ARCHITECTURE.md">Architecture</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CHANGELOG.md">Changelog</a>
   </div>
   <div class="col">
     <h4>Community</h4>
-    <a href="https://github.com/scottconverse/agentic-pipeline/discussions">Discussions</a>
-    <a href="https://github.com/scottconverse/agentic-pipeline/issues">Issues</a>
-    <a href="https://github.com/scottconverse/agentic-pipeline/releases">Releases</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/discussions">Discussions</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/issues">Issues</a>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/releases">Releases</a>
   </div>
   <div class="col">
     <h4>Stability</h4>
     <p>Beta. The structural pattern has shipped across multiple projects and absorbed real failure receipts into its defaults. Semver applies once <code>0.1.x-beta</code> drops.</p>
-    <p style="margin-top: 14px;"><a href="https://github.com/scottconverse/agentic-pipeline/blob/main/CHANGELOG.md">Read the changelog →</a></p>
+    <p style="margin-top: 14px;"><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CHANGELOG.md">Read the changelog →</a></p>
   </div>
 </section>
 
@@ -687,8 +685,8 @@
 
 <footer class="foot page">
   <span>© Scott Converse · Apache-2.0</span>
-  <span><a href="https://github.com/scottconverse/agentic-pipeline">github</a> · <a href="https://github.com/scottconverse/agentic-pipeline/discussions">discussions</a></span>
-  <span>v0.6.0 · 2026</span>
+  <span><a href="https://github.com/scottconverse/agent-pipeline-claude">github</a> · <a href="https://github.com/scottconverse/agent-pipeline-claude/discussions">discussions</a></span>
+  <span>v0.5.2 · 2026</span>
 </footer>
 
 </body>

@@ -296,7 +296,7 @@ The implementer reads `docs/process/5-lens-self-audit.md` in the repo. The audit
 
 ## 20. Pipeline Integration
 
-This project uses the `agentic-pipeline` plugin's `module-release` pipeline (or `feature` / `bugfix`) for execution discipline. The audit-handoff protocol layered on top:
+This project uses the `agent-pipeline-claude` plugin's `module-release` pipeline (or `feature` / `bugfix`) for execution discipline. The audit-handoff protocol layered on top:
 
 - Phase 1 (Scoped product work) — implementing agent runs 5-lens before push.
 - Phase 4 (Verifier) — auditing agent runs this protocol's 10-section output.

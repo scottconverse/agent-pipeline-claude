@@ -104,4 +104,4 @@ If any lens has findings, fix before push. If after a push an adversarial audit 
 
 - `<AUDIT_PROTOCOL_PATH>` — the verification-side audit protocol. The mandatory 10-section output shape and the verifier's evidence-pass rules live there. Section 21 ("Implementation-side rule pointer") and section 22 ("Known drift patterns") in that file pair with this document.
 - `<AUDIT_GATE_PATH>` — the short mandatory gate auditors read every turn.
-- Project `CLAUDE.md` / `AGENTS.md` / Codex skill — names this file as the before-every-push discipline.
+- Project `CLAUDE.md` (or the second AI's standing-instructions surface) — names this file as the before-every-push discipline.

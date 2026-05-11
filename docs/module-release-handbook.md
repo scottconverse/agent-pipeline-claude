@@ -1,4 +1,4 @@
-# Module Release Handbook — agentic-pipeline v0.2
+# Module Release Handbook — agent-pipeline-claude v0.2
 
 This is the operator's reference for running a single-module release sprint end-to-end in one continuous run. It exists because the CivicSuite recovery sweep of 2026-05-10 took ~8 hours on a single module migration when the work itself was ~1 hour of product code — the rest was cascading discovery of pre-existing infrastructure bugs.
 
@@ -48,14 +48,14 @@ See `pipelines/roles/local-rehearsal.md`.
 
 ### Initial setup (once per project)
 
-1. Install agentic-pipeline plugin:
+1. Install agent-pipeline-claude plugin:
    ```bash
    # As a Claude Code plugin
-   /plugin marketplace add scottconverse/agentic-pipeline
-   /plugin install agentic-pipeline@agentic-pipeline
+   /plugin marketplace add scottconverse/agent-pipeline-claude
+   /plugin install agent-pipeline-claude@agent-pipeline-claude
    ```
 
-   OR for Codex projects, the `project-control-plane` skill at `~/.codex/skills/project-control-plane/SKILL.md` has the same 4-phase discipline embedded.
+   The plugin runs in Claude Code. Projects using a second AI for audit (v0.3 audit-handoff) wire that AI separately via its own standing-instructions surface.
 
 2. Run `/pipeline-init` to scaffold:
    ```
@@ -157,7 +157,7 @@ The pipeline orchestrates the 4 phases with human gates at:
 
 **Phase 3** pushes the tag. Watches the release workflow. If it fails on something Phase 2 didn't catch (truly remote-only), agent halts and asks. Otherwise the workflow passes first try and the GitHub Release publishes. Then opens umbrella PR with release-tag label, waits for release-lockstep-gate green, merges. Opens handoff PR separately (no release-tag).
 
-**Phase 4** is the existing verifier role with the 9-item package: PR/SHA verification three ways, document reads across all four classes (CHANGELOG / browser-QA / handoff / control-plane), drift check, working-tree check, things-Codex-didn't-surface review, open items, next directive, recommended next action.
+**Phase 4** is the existing verifier role with the 9-item package: PR/SHA verification three ways, document reads across all four classes (CHANGELOG / browser-QA / handoff / control-plane), drift check, working-tree check, things-the-implementer-didn't-surface review, open items, next directive, recommended next action.
 
 **Phase 5** is the existing manager role with completion-handoff requirements: full tag-move record table (if any moves happened), root-cause analysis of Phase 0 findings, permanent improvements landed, verifier output captured. Updates PCP + queue. Supersedes any PAUSED handoff.
 
@@ -196,4 +196,3 @@ See also:
 - `pipelines/roles/local-rehearsal.md` — Phase 2 role
 - `pipelines/self-classification-rules.md` — Phase 1's pre-authorized classifications
 - `scripts/preflight_infrastructure.py` — Phase 0 runner
-- `~/.codex/skills/project-control-plane/SKILL.md` v0.2 addition — Codex-side equivalent

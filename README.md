@@ -1,8 +1,8 @@
-# agentic-pipeline
+# agent-pipeline-claude
 
 A Claude Code plugin that orchestrates multi-stage agentic work: **manifest → research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager**, with human-approval gates at manifest, plan, and manager-decision (the last auto-fires on clean runs at v0.5+). Built from real lessons across CivicCast, CivicSuite, AgentSuiteLocal and other projects where autonomous agent runs go wrong silently and "manager-PROMOTE" failures slip past CI.
 
-**Current release: v0.5.0** (single-AI hardened). [CHANGELOG](CHANGELOG.md) · [User Manual](USER-MANUAL.md) · [Architecture](ARCHITECTURE.md) · [Landing page](https://scottconverse.github.io/agentic-pipeline/) · [Discussions](https://github.com/scottconverse/agentic-pipeline/discussions)
+**Current release: v0.5.0** (single-AI hardened). [CHANGELOG](CHANGELOG.md) · [User Manual](USER-MANUAL.md) · [Architecture](ARCHITECTURE.md) · [Landing page](https://scottconverse.github.io/agent-pipeline-claude/) · [Discussions](https://github.com/scottconverse/agent-pipeline-claude/discussions)
 
 ## Why this plugin exists
 
@@ -26,7 +26,7 @@ This plugin enforces a structural pattern that catches every one of those:
 
 ```bash
 # As a Claude Code plugin (one-time install across all projects)
-/plugin install scottconverse/agentic-pipeline
+/plugin install scottconverse/agent-pipeline-claude
 ```
 
 Or clone the repo and add to your Claude Code plugins config manually.
@@ -117,7 +117,7 @@ Human gates at Phase 0 results review, Phase 2 rehearsal-ok, and Phase 5 release
 
 ## v0.3: Dual-AI audit-handoff discipline
 
-For projects where one AI implements and a different AI audits (e.g., Claude implements while Codex audits, or vice versa), v0.3 adds a complementary discipline that catches drift the pipeline doesn't:
+For projects where one AI implements and a second AI audits, v0.3 adds a complementary discipline that catches drift the pipeline doesn't:
 
 ```
 /audit-init
@@ -128,11 +128,9 @@ This scaffolds three artifacts:
 2. `<PROJECT>_AUDIT_PROTOCOL.md` (out-of-repo) — long reference protocol with the 10-section output shape, status-word rules, and a known drift patterns catalog.
 3. `<project>/docs/process/5-lens-self-audit.md` (in-repo, via PR) — shared discipline both agents read. The implementer runs a hostile 5-lens self-audit before every push (Engineering / UX / Tests / Docs / QA), plus a post-push SHA-propagation step.
 
-Plus per-agent wiring (Claude memory file or Codex skill addition) so each agent reads the right artifact on session start.
+Plus per-agent wiring (Claude memory feedback file on the Claude side; the equivalent project-context or skill-registration mechanism on the other AI's side) so each agent reads the right artifact on session start.
 
-The discipline is symmetric — any agent can play either role:
-- CivicCast uses Claude=implementer / Codex=auditor.
-- CivicSuite uses Codex=implementer / Claude=auditor.
+The discipline is symmetric — any AI can play either role. The plugin runs in Claude Code; the second AI can be any tool that exposes a project-context or standing-instructions surface.
 
 **Stacking with v0.2:**
 - Pipeline (v0.2) catches execution-cascade failures: pre-existing CI bugs, tag-move dances, halt-and-ask loops.
@@ -211,7 +209,7 @@ The new three stages add ~10–20 minutes of wall-clock per run depending on art
 
 ### Honest limit
 
-Single-model-family blind spots correlate. If both the executor and the critic share a wrong assumption that fits the manifest, both sign off and auto-promote fires green. Dual-AI (v0.3) is the only structural defense against this. **Recommended mitigation:** periodic sample audit by a different model family (Codex auditing Claude runs, or vice versa) on a weekly cadence. The v0.3 `/audit-init` discipline still applies; v0.5 does not replace it.
+Single-model-family blind spots correlate. If both the executor and the critic share a wrong assumption that fits the manifest, both sign off and auto-promote fires green. Dual-AI (v0.3) is the only structural defense against this. **Recommended mitigation:** periodic sample audit by a different model family on a weekly cadence. The v0.3 `/audit-init` discipline still applies; v0.5 does not replace it.
 
 ### Stacking with v0.2, v0.3, v0.4
 

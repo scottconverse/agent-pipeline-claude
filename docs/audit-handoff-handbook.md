@@ -1,4 +1,4 @@
-# Audit-Handoff Handbook — agentic-pipeline v0.3
+# Audit-Handoff Handbook — agent-pipeline-claude v0.3
 
 This is the operator's reference for the dual-AI audit-handoff discipline. It exists because long autonomous runs by a single AI accumulate drift faster than they accumulate features, and a second AI reading the durable artifacts cold catches what the first AI missed.
 
@@ -8,12 +8,12 @@ The `/audit-init` command and the artifacts it produces:
 - `<PROJECT>_AUDIT_GATE.md` — short mandatory gate read every audit turn (out-of-repo)
 - `<PROJECT>_AUDIT_PROTOCOL.md` — long reference protocol (out-of-repo)
 - `<project>/docs/process/5-lens-self-audit.md` — in-repo shared discipline
-- Per-agent wiring (Claude memory file / Codex skill addition / manual instructions)
+- Per-agent wiring (Claude memory feedback file on the Claude side; the second AI's project-context or skill-registration file on the other side; or manual instructions for runtimes without a standing-instructions surface)
 
 ## When to use the audit-handoff discipline
 
 Use it when:
-- The project has two AI systems with separate context (e.g., Claude in Claude Code and Codex in the Codex CLI).
+- The project has two AI systems with separate context (e.g., Claude in Claude Code paired with a second AI in its own runtime).
 - Long autonomous runs are accumulating drift that humans catch only on close review.
 - "Implementing agent says done, auditor says no" is a recurring pattern.
 - Status-word abuse (`ready`, `green`, `taggable`, `shippable`) is sneaking into chat reports.
@@ -71,9 +71,11 @@ The discipline is symmetric — any agent can play either role:
 
 | Project | Implementer | Auditor |
 |---|---|---|
-| CivicCast | Claude | Codex |
-| CivicSuite | Codex | Claude |
+| Example A | Claude | (a second AI) |
+| Example B | (a second AI) | Claude |
 | Your project | (your choice) | (your choice) |
+
+The plugin itself runs in Claude Code. The second AI can be any tool whose project-context or standing-instructions surface lets you point it at the gate and protocol files. The discipline is the artifact set; the runtimes are interchangeable.
 
 `/audit-init` asks for the role assignment and wires the per-agent pointers accordingly.
 

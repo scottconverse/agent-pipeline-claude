@@ -18,25 +18,25 @@ Three artifacts plus optional per-agent wiring:
 3. **`<project-repo>/docs/process/5-lens-self-audit.md`** in-repo. Shared by both agents. Contains the hostile self-audit the implementer runs before push.
 
 Optional wiring:
-- If Claude is in either role: a Claude memory feedback file pointing at the right artifact.
-- If Codex is in either role: a Codex skill addition (in `~/.codex/skills/project-control-plane/SKILL.md` or equivalent) pointing at the right artifact.
-- Optional update to project-level `CLAUDE.md` / `AGENTS.md` declaring the discipline.
+- For Claude in either role: a Claude memory feedback file pointing at the right artifact.
+- For another AI in either role: the equivalent project-context or skill-registration file for that runtime (varies by runtime — point the operator at where that AI reads its standing instructions).
+- Optional update to project-level `CLAUDE.md` or runtime-equivalent project-context file declaring the discipline.
 
 ## Step 1 — Gather inputs
 
 Use `AskUserQuestion` to collect:
 
 - **Question:** `What is the project name? (capitalized, e.g. CivicSuite, CivicCast)`
-- **Question:** `Which AI system implements code in this project?` Options: `Claude`, `Codex`, `Other`.
-- **Question:** `Which AI system audits in this project?` Options: `Claude`, `Codex`, `Other`. (If same as implementer, this is a single-agent project — see Step 6.)
+- **Question:** `Which AI system implements code in this project?` Options: `Claude`, `Other (name it)`.
+- **Question:** `Which AI system audits in this project?` Options: `Claude`, `Other (name it)`. (If same as implementer, this is a single-agent project — see Step 6.)
 - **Question:** `What is the local path to the project repo?` (Use the current directory if it looks like a repo, otherwise ask.)
 - **Question:** `What is the desktop-level directory where the gate + protocol should live?` Default: parent of the project repo path.
 
 Capture:
 - `<PROJECT_NAME>` — the capitalized project name.
 - `<PROJECT_NAME_UPPER>` — uppercase for file names.
-- `<IMPLEMENTER_AGENT>` — Claude / Codex / Other.
-- `<AUDITOR_AGENT>` — Claude / Codex / Other.
+- `<IMPLEMENTER_AGENT>` — `Claude` or the operator's named other AI.
+- `<AUDITOR_AGENT>` — `Claude` or the operator's named other AI.
 - `<PROJECT_REPO_PATH>` — local path.
 - `<DESKTOP_PATH>` — out-of-repo path.
 - `<AUDIT_GATE_PATH>` — `<DESKTOP_PATH>/<PROJECT_NAME_UPPER>_AUDIT_GATE.md`.
@@ -85,7 +85,7 @@ Pairs with:
 - <AUDIT_GATE_PATH> (out-of-repo, short mandatory gate)
 - <AUDIT_PROTOCOL_PATH> (out-of-repo, long reference)
 
-Scaffolded by /audit-init from scottconverse/agentic-pipeline v0.3+.
+Scaffolded by /audit-init from scottconverse/agent-pipeline-claude v0.3+.
 This is process documentation only. No feature work, no code change,
 no tag/release impact.
 ```
@@ -141,8 +141,8 @@ real drift on every cycle when this rule isn't followed.
 plus the artifact-state checklist, plus the post-push SHA-propagation step.
 ```
 
-### If Codex is in either role
-Append to `~/.codex/skills/project-control-plane/SKILL.md` (or whichever Codex skill governs the project) a section like:
+### If a non-Claude AI is in either role
+Print the relevant file paths and a one-paragraph summary of what that agent needs to read every turn. The user wires it into the other AI's standing-instructions surface manually (skill file, project-context file, system prompt, custom GPT instructions — whatever the runtime exposes). Pattern to convey:
 
 ```markdown
 ## <PROJECT_NAME> audit-handoff discipline
@@ -152,9 +152,6 @@ When working on <PROJECT_NAME> as the <role>:
 - Reference: `<AUDIT_PROTOCOL_PATH>` for full audit protocol.
 - The mandatory 10-section verification output and the 5-lens self-audit are non-negotiable.
 ```
-
-### If "Other" is in either role
-Print the file paths and a one-paragraph summary of what that agent needs to read every turn. The user wires it manually.
 
 ## Step 6 — Single-agent fallback
 

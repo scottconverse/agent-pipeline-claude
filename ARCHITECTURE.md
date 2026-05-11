@@ -1,6 +1,6 @@
 # Architecture
 
-How the agentic-pipeline plugin is organized, what runs where, and which
+How the agent-pipeline-claude plugin is organized, what runs where, and which
 artifact each stage produces.
 
 This document is for two audiences:
@@ -20,7 +20,7 @@ first. This document assumes you have already done at least one run.
 
 The plugin orchestrates work across **three layers**:
 
-1. **Plugin layer** (`agentic-pipeline/`) — the slash commands, the
+1. **Plugin layer** (`agent-pipeline-claude/`) — the slash commands, the
    stage definitions, the role files, and the policy scripts. Versioned,
    shared across all your projects.
 2. **Project layer** (`<your-project>/`) — copies of the pipeline
@@ -543,7 +543,7 @@ This means:
 ## 10. File layout — every file explained
 
 ```
-agentic-pipeline/                        # the plugin
+agent-pipeline-claude/                        # the plugin
 ├── .claude-plugin/
 │   └── plugin.json                      # plugin metadata, version
 ├── README.md                            # quick-start
@@ -673,7 +673,7 @@ sequenceDiagram
     autonumber
     participant U as User
     participant CC as Claude Code
-    participant Plugin as agentic-pipeline plugin
+    participant Plugin as agent-pipeline-claude plugin
     participant Proj as your project
     participant Runs as .agent-runs/&lt;run-id&gt;/
 

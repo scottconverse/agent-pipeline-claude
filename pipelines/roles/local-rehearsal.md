@@ -124,6 +124,6 @@ The Phase 3 stage MUST NOT execute until this report contains a PASS line for St
 
 ## Why this role exists
 
-Tag push is the single non-reversible step in the pipeline. The agentic-pipeline allows tag-moves (CivicSuite v1.5.0 moved 4 times) but each move costs ~30 minutes (PR, merge, tag move, CI cycle) and pollutes the audit trail. The civicrecords-ai sweep tag-moved 4 times because the release workflow was the discovery mechanism for the bugs. With local rehearsal, the workflow becomes the EXECUTION mechanism, not the discovery mechanism.
+Tag push is the single non-reversible step in the pipeline. The agent-pipeline-claude allows tag-moves (CivicSuite v1.5.0 moved 4 times) but each move costs ~30 minutes (PR, merge, tag move, CI cycle) and pollutes the audit trail. The civicrecords-ai sweep tag-moved 4 times because the release workflow was the discovery mechanism for the bugs. With local rehearsal, the workflow becomes the EXECUTION mechanism, not the discovery mechanism.
 
 Local rehearsal failing is good news (free fix). Remote rehearsal failing after a tag push is bad news (~30 minutes of plumbing per failure).

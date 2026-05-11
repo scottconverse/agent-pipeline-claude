@@ -1,8 +1,8 @@
-# agentic-pipeline — User Manual
+# agent-pipeline-claude — User Manual
 
 A Claude Code plugin that orchestrates multi-stage agentic work with three human-approval gates. Built from real lessons across multi-week agent projects where autonomous runs go wrong silently and "manager-PROMOTE" failures slip past CI.
 
-**Version:** 0.5.1
+**Version:** 0.5.2
 **License:** Apache 2.0
 
 ---
@@ -77,7 +77,7 @@ Six generic policy checks (Python, stdlib only):
 
 ```bash
 # One-time install — available across all projects
-/plugin install scottconverse/agentic-pipeline
+/plugin install scottconverse/agent-pipeline-claude
 ```
 
 ### Manual install (local clone)
@@ -85,7 +85,7 @@ Six generic policy checks (Python, stdlib only):
 If your Claude Code setup uses a plugins config in `~/.claude/settings.json` or `.claude/settings.json`:
 
 ```bash
-git clone https://github.com/scottconverse/agentic-pipeline.git ~/agentic-pipeline-plugin
+git clone https://github.com/scottconverse/agent-pipeline-claude.git ~/agent-pipeline-claude-plugin
 ```
 
 Then add the path to your settings (consult the Claude Code docs for the current plugin-registration syntax — varies by version).
@@ -99,7 +99,7 @@ python scripts/policy/auto_promote.py --version
 python scripts/policy/check_manifest_schema.py --version
 ```
 
-Each prints `agentic-pipeline 0.5.1` and exits 0. The flag fires before any other argument validation, so it works on `auto_promote.py` without supplying `--run`. Use it to confirm a project actually has the v0.5 scripts and not stale copies from an earlier `/pipeline-init`.
+Each prints `agent-pipeline-claude 0.5.1` and exits 0. The flag fires before any other argument validation, so it works on `auto_promote.py` without supplying `--run`. Use it to confirm a project actually has the v0.5 scripts and not stale copies from an earlier `/pipeline-init`.
 
 If the script doesn't recognize `--version` (argparse prints a usage error and exits 2), the install is pre-v0.5. Re-run `/pipeline-init` to refresh the scripts from the plugin source.
 

@@ -1,4 +1,4 @@
-# Show and tell — what have you built with agentic-pipeline?
+# Show and tell — what have you built with agent-pipeline-claude?
 
 This thread is for case studies. Real runs, real artifacts, real receipts. If you've used the plugin on a project — small or large — share what happened, what worked, and what didn't.
 

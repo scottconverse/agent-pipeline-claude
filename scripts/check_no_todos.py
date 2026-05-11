@@ -44,7 +44,7 @@ def _find_repo_root() -> Path:
     The original implementation hard-coded ``parents[2]`` for the
     installed layout, which caused the plugin source layout to scan
     the plugin's *parent* directory (e.g. ``Desktop/Claude/`` when
-    cloned into ``Desktop/Claude/agentic-pipeline``), pulling sibling
+    cloned into ``Desktop/Claude/agent-pipeline-claude``), pulling sibling
     projects into the scan and emitting spurious failures.
     """
     script_dir = Path(__file__).resolve().parent

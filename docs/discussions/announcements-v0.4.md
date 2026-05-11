@@ -1,4 +1,4 @@
-# agentic-pipeline v0.4 — the judge layer
+# agent-pipeline-claude v0.4 — the judge layer
 
 **TL;DR:** Real-time action-level supervision inside the executor stage. Opt-in via `.pipelines/action-classification.yaml`. The orchestrator classifies every executor tool call by risk class and spawns a context-isolated judge subagent for the dangerous ones. Four verdicts: `allow`, `block`, `revise`, `escalate`.
 
