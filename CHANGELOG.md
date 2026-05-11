@@ -8,6 +8,46 @@ leaves beta. While in `0.1.x-beta`, breaking changes to slash-command
 arguments, manifest fields, or role-file contracts may land in any
 release; the `CHANGELOG` will call them out.
 
+## [0.4.0] — 2026-05-11
+
+The judge layer. Real-time action-level supervision inside the executor stage. Built from Nate Jones, "LLM-as-Judge" (May 2026). The Lindy case study — an agent that sent 14 unauthorized emails because operator-trained-reflex APPROVE clicking defeated manual confirmation — showed that prompts don't hold across long context, and per-action confirmation alone breeds the cookie-banner effect. The architectural fix is a second agent (the judge) whose sole loyalty is the manifest, evaluated in context isolation from the executor's reasoning chain.
+
+### Added
+
+- `pipelines/roles/judge.md` — role file for the judge subagent. Returns exactly one of four verdicts: `allow`, `block`, `revise`, `escalate`. Output is a single YAML block, no prose. Hard rules forbid helping the executor, negotiating, inferring authorization, summarizing, deferring to executor confidence, approving by precedent, or modifying anything outside the verdict file. Inputs are deliberately scoped: manifest, matched action policy, prior judge decisions for the run, and the structured action proposal — but **not** the executor's reasoning chain. Context isolation is the mechanism.
+- `pipelines/action-classification.yaml` — opt-in classification rules. Four risk classes (`read_only`, `reversible_write`, `external_facing`, `high_risk`) with first-match-wins evaluation top-to-bottom within each class. Class priority `high_risk` → `external_facing` → `reversible_write` → `read_only`. Default class for unmatched actions: `reversible_write`. Ships with the common dangerous and external-facing patterns: `rm -rf`, `git push --force`, `git push main`, `DROP TABLE`, `npm publish`, `gh pr create`, `curl -X POST`, `docker push`, `kubectl apply`, credential-touching `export *KEY=`, etc.
+- `commands/run-pipeline.md` — **Handler 3a** for the executor stage when `.pipelines/action-classification.yaml` exists. Wraps the executor in a classify → judge → execute inner loop. Routes by class: `read_only` and `reversible_write` execute immediately + log; `external_facing` requires judge ALLOW; `high_risk` requires judge ALLOW plus human confirm. Verdict routing: `allow` executes, `block` halts the pipeline, `revise` returns a concrete revision instruction (max 3 cycles per action_id; auto-escalate after), `escalate` pauses for a specific human question. Handler 3 (the v0.3 executor handler) is preserved unchanged and is selected when `action-classification.yaml` is absent — the layer is opt-in by file presence.
+- `judge-log.yaml` artifact — chronological per-action record written to the run directory when the judge layer is active. Captures tool, arguments, class, disposition (`auto_allow` / `judged_allow` / `judged_revise` / `judged_block` / `judged_escalate` / `human_confirmed` / `human_blocked`), judge verdict, judge reason, revision instruction, and timestamp.
+- `judge-metrics.yaml` artifact — aggregate counts plus `escalation_rate`, `judge_invocations`, `revision_cycles`. Written alongside `judge-log.yaml` at executor-stage end. The escalation rate is the operator's tuning signal — see USER-MANUAL.md §"The judge layer (v0.4)".
+- `judge-decisions/<action_id>.yaml` directory — per-action verdict files written by the judge subagent. Read by the next judge invocation as `prior_judge_decisions` so re-proposals of blocked actions are detected without depending on conversation memory.
+- ARCHITECTURE.md §7 — full design rationale, the classify → judge → execute inner-loop diagram, the context-isolation diagram, the relationship-to-other-gates table, the four-verdicts spec, and the opt-in-by-file-presence model.
+- README.md §"v0.4: Judge layer" — quickstart overview with the four classes, the four verdicts, and the artifacts produced. One-line summary: "Pipeline (v0.2) catches execution-cascade failures. Audit-handoff (v0.3) catches drift failures. Judge layer (v0.4) catches unauthorized actions in real time."
+- USER-MANUAL.md §"The judge layer (v0.4)" — operator-facing guidance. Enabling and disabling, customizing rules per project, reading `judge-log.yaml` and `judge-metrics.yaml`, escalation-rate tuning (too-low vs too-high vs healthy range 0.02–0.10), adding project-specific high-risk patterns, and what to do when the judge ESCALATEs and you aren't sure (don't reflex-APPROVE — fix the manifest ambiguity).
+
+### Why each new piece exists
+
+- **Context isolation prevents single-model-family correlated judgment.** The judge cannot be persuaded by the same chain of inferences that produced the over-broad action because it never sees them. The manifest and the action proposal are the inputs; the executor's reasoning chain is deliberately withheld.
+- **Four verdicts, not two, prevent BLOCK fatigue.** ALLOW / BLOCK alone forces the judge into binary calls on actions where a small revision (push to feature branch, not main) would make the action correct. `revise` and `escalate` give the judge ways to be useful without halting the pipeline on every borderline call.
+- **High_risk + human confirm even after judge ALLOW is belt-and-suspenders.** A judge ALLOW on `rm -rf` or `git push --force` is still a moment a human should see. The judge's ALLOW raises confidence that the action is authorized; the human confirm is the final check that no inferred-authorization slipped through.
+- **Opt-in by file presence keeps the layer composable.** Projects that don't need real-time action supervision (small repos, no external services, mature contributor base) can run without the file and get v0.3 behavior. Projects that need it add one YAML file. There is no separate `/enable-judge` command and no manifest field to remember.
+- **Metrics in `judge-metrics.yaml`, not just logs, give the operator a tuning loop.** Without an aggregate, operators can't tell whether they're at 0% escalation (rules too loose) or 30% (cookie-banner fatigue forming). The `escalation_rate` is computed every run; reviewing it after the first 5–10 runs typically converges the rules to a healthy range.
+
+### Stacking with v0.2 and v0.3
+
+- Pipeline (v0.2) catches execution-cascade failures: pre-existing CI bugs, tag-move dances, halt-and-ask loops. Pre-executor.
+- Audit-handoff (v0.3) catches drift failures: wrong endpoint, stale CHANGELOG, status-word abuse. Post-executor.
+- **Judge layer (v0.4) catches unauthorized actions in real time.** **During** the executor stage, at the action boundary, before the action lands. The other two run before and after the executor; the judge runs **during**.
+
+The three layers address three different failure classes and can be enabled independently. Many projects will run all three.
+
+### Known limitations
+
+- **Single-model-family blind spots may still correlate.** The judge is a subagent of the same model family as the executor. Some classes of failure (e.g., a particular phrasing that biases both agents identically) can persist. The architectural defense (context isolation) reduces this risk; it does not eliminate it.
+- **The judge is slower than no-judge.** Every `external_facing` and `high_risk` action incurs a subagent spawn. For executor stages dominated by `read_only` and `reversible_write` actions this is negligible; for stages with many external operations (e.g., heavy `gh` API or `curl` use) it adds real wallclock time.
+- **Rules drift.** The shipped `action-classification.yaml` is generic. Projects with their own dangerous commands (`make deploy-prod`, custom CLI tools) will need to add project-specific rules; until they do, those actions fall into the default class (`reversible_write`) and execute without judge review.
+- **The judge cannot see future state.** It evaluates one action at a time against the current manifest. A sequence of individually-authorized actions that compose into an unauthorized outcome (e.g., creating three files that together expose a secret) is not caught by the judge — it is caught by the policy stage and the verifier.
+- **Auto-escalation after 3 revision cycles is an upper bound, not a target.** If revision_cycles is consistently high across runs, that usually indicates a manifest clarity problem, not a judge problem.
+
 ## [0.3.0] — 2026-05-11
 
 The dual-AI audit-handoff discipline. Built from the CivicCast `process/shared-audit-knowledge` PR (commit `bfc5a2a`) which formalized a pattern that had been proven across multiple sprints: an implementing AI runs a hostile 5-lens self-audit before push, a verifying AI runs a documented 10-section protocol after push, and both share an in-repo doc so neither re-derives the rules from scratch each session.

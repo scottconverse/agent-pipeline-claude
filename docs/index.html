@@ -20,6 +20,8 @@
     --agent-edge: #0066cc;
     --policy: #fff3b3;
     --policy-edge: #999900;
+    --judge: #ccf2cc;
+    --judge-edge: #339933;
     --gate: #ffb3b3;
     --gate-edge: #cc0000;
     --code-bg: #0f172a;
@@ -201,7 +203,7 @@
 
 <header class="hero">
   <div class="hero-inner">
-    <div class="badge">v0.1.0-beta · Apache 2.0 · Claude Code plugin</div>
+    <div class="badge">v0.4.0 · Apache 2.0 · Claude Code plugin</div>
     <h1>agentic-pipeline</h1>
     <p class="tagline">
       Multi-stage agent runs for Claude Code, with three human gates, an
@@ -317,6 +319,71 @@
 </section>
 
 <section>
+  <h2>Layers added since v0.1</h2>
+  <p class="muted">
+    Each minor version solves a specific class of failure that the
+    previous layer didn't catch. The layers stack — most projects run
+    all of them.
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h3>v0.2 — <code>module-release</code> pipeline</h3>
+      <p>
+        Six-phase release flow with <strong>Phase 0 preflight</strong>
+        (audit the release workflow before any product code is touched)
+        and <strong>Phase 2 local rehearsal</strong> (run the release
+        sequence locally on fresh state before pushing the tag). Built
+        from receipts where tags moved four times because the workflow
+        was the discovery mechanism instead of the execution mechanism.
+        Plus self-classification rules so the agent doesn't halt-and-ask
+        on routine mechanical CI fixes.
+      </p>
+      <p class="muted" style="margin-top: 10px;">
+        Catches: execution-cascade failures — pre-existing CI bugs,
+        tag-move dances, halt-and-ask loops.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>v0.3 — Dual-AI audit-handoff</h3>
+      <p>
+        <code>/audit-init</code> scaffolds the three-artifact discipline
+        for projects where one AI implements and another audits
+        (Claude↔Codex, either direction). Implementer runs a hostile
+        5-lens self-audit before push; auditor runs a 10-section
+        verification protocol; both share an in-repo doc that
+        accumulates project-specific drift patterns over time.
+      </p>
+      <p class="muted" style="margin-top: 10px;">
+        Catches: drift failures — wrong endpoint, stale CHANGELOG,
+        "Closed" without evidence, status-word abuse.
+      </p>
+    </div>
+
+    <div class="card" style="border-color: var(--judge-edge); border-width: 2px;">
+      <h3>v0.4 — Judge layer (new)</h3>
+      <p>
+        Real-time action-level supervision <em>inside</em> the executor
+        stage. Opt-in via
+        <code>.pipelines/action-classification.yaml</code>. The
+        orchestrator classifies every executor tool call by risk class
+        (<code>read_only</code> / <code>reversible_write</code> /
+        <code>external_facing</code> / <code>high_risk</code>) and
+        spawns a context-isolated judge subagent for the dangerous
+        ones. Four verdicts: <strong>allow</strong>, <strong>block</strong>,
+        <strong>revise</strong>, <strong>escalate</strong>.
+      </p>
+      <p class="muted" style="margin-top: 10px;">
+        Catches: unauthorized actions in real time — destructive
+        commands, external writes, force pushes, credential-touching
+        operations, evaluated against the manifest at the action
+        boundary instead of after the fact.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section>
   <h2>What this plugin will NOT do</h2>
   <ul>
     <li>Propose autonomous mode. Every gate is explicit.</li>
@@ -359,19 +426,23 @@
     </div>
     <div class="card">
       <h3><a href="https://github.com/scottconverse/agentic-pipeline/discussions">Discussions</a></h3>
-      <p>Q&amp;A, show-and-tell, ideas, roadmap. Beta — feedback shapes v0.2.</p>
+      <p>Q&amp;A, show-and-tell, ideas, roadmap. Feedback shapes the next layer.</p>
     </div>
   </div>
 </section>
 
 <section>
-  <h2>Beta posture</h2>
+  <h2>Stability posture</h2>
   <p>
-    v0.1.0-beta means: the structural pattern is solid (it has shipped
-    real features at least one project), but the slash-command edge cases
-    will surface in your codebase before they surface in mine. Open an
-    issue or a discussion when something bites — that's the point of the
-    beta tag.
+    At v0.4, the structural pattern has shipped across multiple projects
+    (CivicCast, CivicSuite, AgentSuiteLocal) and absorbed real failure
+    receipts into its defaults. Slash-command edge cases still surface in
+    new codebases before they surface in mine — open an issue or a
+    discussion when something bites. Semver applies once the
+    <code>0.1.x-beta</code> tag drops; until then,
+    <a href="https://github.com/scottconverse/agentic-pipeline/blob/main/CHANGELOG.md">CHANGELOG</a>
+    calls out any breaking change to slash-command arguments, manifest
+    fields, or role-file contracts.
   </p>
 </section>
 

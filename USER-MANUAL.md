@@ -17,8 +17,9 @@ A Claude Code plugin that orchestrates multi-stage agentic work with three human
 6. [The three human gates](#the-three-human-gates)
 7. [Customizing for your project](#customizing-for-your-project)
 8. [Resuming a halted run](#resuming-a-halted-run)
-9. [Troubleshooting](#troubleshooting)
-10. [Glossary](#glossary)
+9. [The judge layer (v0.4)](#the-judge-layer-v04)
+10. [Troubleshooting](#troubleshooting)
+11. [Glossary](#glossary)
 
 ---
 
@@ -277,6 +278,134 @@ This means:
 - After a verifier marks a criterion `NOT MET` → manager will likely return BLOCK or REPLAN; address and re-run; pipeline redoes execute → policy → verify → manager.
 - After a human gate `BLOCKED` → address the requested change in commits, then re-run; the gate question fires again.
 
+## The judge layer (v0.4)
+
+The judge layer is **real-time action-level supervision inside the executor stage**. It is opt-in: if `.pipelines/action-classification.yaml` exists in your project, the orchestrator detects it at run start and uses Handler 3a (classify → judge → execute) instead of Handler 3 for the executor stage. If the file is absent, the executor stage runs unchanged from v0.3.
+
+The judge catches a failure mode the other gates can't: unauthorized actions that execute before the policy or verifier can see them. Destructive commands (`rm -rf`, `DROP TABLE`), external writes (`gh pr create`, `docker push`), force pushes, and credential-touching operations are intercepted at the action boundary and evaluated against the manifest.
+
+### Enabling it
+
+Two ways:
+
+**Via `/pipeline-init` (recommended).** When `/pipeline-init` runs on a new or existing project, it offers to scaffold `.pipelines/action-classification.yaml` along with the rest of the pipeline files. If you accept, the judge layer is enabled. If you decline, you can enable it later by copying the file from the plugin: `cp <plugin-path>/pipelines/action-classification.yaml .pipelines/`.
+
+**Manually.** Copy `pipelines/action-classification.yaml` from the plugin install into your project's `.pipelines/` directory. The next run after the copy lands will use the judge layer.
+
+Disable by deleting the file. The next run reverts to v0.3 executor behavior.
+
+### Customizing the classification rules
+
+The shipped `action-classification.yaml` covers the common dangerous and external-facing patterns: `rm -rf`, `git push --force`, `npm publish`, `kubectl apply`, etc. Your project will have its own:
+
+- Your project's deploy command — add it under `high_risk`.
+- Your project's local preview server — add it under `reversible_write` (it's a side-effect-free local process).
+- Your project's specific API endpoints accessed via `curl` — already caught by the generic `curl -X POST` rule, but you can add narrower rules for specific endpoints that you want named for clearer judge reasoning.
+
+Edit order matters: rules are evaluated top-to-bottom **within each class**, and class priority is `high_risk` → `external_facing` → `reversible_write` → `read_only`. If you want a particular `gh release create` to be `high_risk` (because publishing a release is irreversible in your project), move that rule into the `high_risk` block.
+
+When in doubt: classify conservatively. The cost of a false `high_risk` classification is one extra human confirm; the cost of a missed `high_risk` is the Lindy 14-email case.
+
+### Reading judge-log.yaml
+
+Every action — auto-allowed or judged — gets one entry in `.agent-runs/<run-id>/judge-log.yaml`:
+
+```yaml
+actions:
+  - action_id: "exec-001"
+    tool: bash
+    arguments: "cat src/auth/models.py"
+    class: read_only
+    disposition: auto_allow
+    timestamp: "2026-05-11T14:30:00Z"
+  - action_id: "exec-007"
+    tool: bash
+    arguments: "git push origin main"
+    class: high_risk
+    disposition: judged_revise
+    judge_verdict: revise
+    judge_reason: "Manifest authorizes implementation on feature branch; main push is not in scope."
+    revision_instruction: "Push to feature/judge-layer-v0.4 instead of main."
+    timestamp: "2026-05-11T14:35:12Z"
+```
+
+The seven possible `disposition` values:
+
+- `auto_allow` — action was `read_only` or `reversible_write`; executed without judge invocation.
+- `judged_allow` — `external_facing` action; judge said ALLOW; executed.
+- `judged_revise` — judge said REVISE; revision sent back to executor; executor produced a corrected proposal.
+- `judged_block` — judge said BLOCK; action did not execute; pipeline halted.
+- `judged_escalate` — judge said ESCALATE; pipeline paused for human input.
+- `human_confirmed` — judge said ALLOW on `high_risk`, OR judge said ESCALATE and human approved; action executed.
+- `human_blocked` — judge said ALLOW on `high_risk` but human refused, OR judge said ESCALATE and human refused; action did not execute; pipeline halted.
+
+When reading the log, focus on the `judged_*` and `human_*` entries first — those are the moments the judge or you actually exercised judgment. The `auto_allow` entries are the audit trail; you typically only read them when investigating a specific incident.
+
+### Reading judge-metrics.yaml
+
+Aggregate counts and the tuning signal:
+
+```yaml
+total_actions: 23
+by_class:
+  read_only: 12
+  reversible_write: 7
+  external_facing: 3
+  high_risk: 1
+by_disposition:
+  auto_allow: 19
+  judged_allow: 2
+  judged_revise: 1
+  judged_block: 0
+  judged_escalate: 1
+  human_confirmed: 1
+  human_blocked: 0
+escalation_rate: 0.087
+judge_invocations: 4
+revision_cycles: 1
+```
+
+`escalation_rate` is `(judged_escalate + human_blocked) / total_actions`. It's the operator's tuning signal:
+
+- **Too low (e.g., 0.00)** — the classification rules may be too permissive. The judge is allowing things you would have wanted to confirm. Tighten by moving borderline rules from `external_facing` to `high_risk`, or by adding project-specific rules under stricter classes.
+- **Too high (e.g., >0.20)** — every other action is paging you. This is the **cookie-banner effect** the judge layer exists to prevent: humans flooded with confirmation prompts learn to click APPROVE reflexively, defeating the gate. Loosen by moving over-strict rules to a less-strict class, or by adding more specific patterns that catch the truly dangerous cases without sweeping in routine ones.
+- **Healthy range (rough guide, project-dependent)** — `0.02 – 0.10`. Most actions auto-allowed; a few external/high-risk actions per run; one or two genuine human checks. Treat the rate as a moving average over many runs, not a single-run target.
+
+`revision_cycles` is the cumulative count of judge-REVISE → executor-retry pairs across all actions. High revision_cycles with low judge_block suggests the executor is converging on correct actions after a couple of nudges — generally healthy. High revision_cycles **with** a final auto-escalate on the same action means the executor and judge disagree fundamentally on what the manifest authorizes — that's a manifest clarity bug, not an agent bug.
+
+### Adding project-specific rules
+
+Two common cases:
+
+**Your deploy command is high-risk.** If `make deploy-prod` (or whatever) is your push-to-production trigger, add it under `high_risk`:
+
+```yaml
+high_risk:
+  # ... existing entries ...
+  - pattern: '\bmake\s+deploy-prod\b'
+    tool: bash
+    note: "Production deploy. Externally visible; requires explicit manifest authorization."
+```
+
+**Your API has a specific destructive endpoint.** If `curl -X DELETE https://api.example.com/v1/customers` is something you never want auto-allowed, add a more specific rule **above** the generic `curl -X DELETE` entry under `external_facing`, OR promote it to `high_risk`:
+
+```yaml
+high_risk:
+  - pattern: 'curl.*example\.com/v1/customers'
+    tool: bash
+    note: "Customer-data DELETE. Irreversible and PII-touching."
+```
+
+Rules are first-match-wins within each class, and the four classes are evaluated in priority order (`high_risk` first). Putting the specific rule in a higher-priority class means it wins regardless of the generic rule's position.
+
+### When the judge ESCALATEs and you aren't sure
+
+The judge's `escalation_question` is designed to be answerable without reading other artifacts. If you find yourself unable to answer, the manifest is probably ambiguous — the right move is to halt, edit the manifest to remove the ambiguity, and re-run. The escalation question itself often tells you exactly which manifest field is unclear.
+
+Do NOT routinely click APPROVE on escalations you don't fully understand. That's the cookie-banner effect arriving in slow motion. If escalations are happening on the same kind of question repeatedly, that's a manifest-template improvement to make for your project.
+
+---
+
 ## Troubleshooting
 
 ### `manager-decision.md` says PROMOTE but CI fails
@@ -321,6 +450,9 @@ If your project has CI but no Docker cleanroom, the executor's local pytest can 
 - **PROMOTE / BLOCK / REPLAN** — the three possible manager decisions. PROMOTE = ready for human merge approval. BLOCK = unfixable in current state, fix and re-run. REPLAN = manifest itself was wrong, redraft and start over.
 - **Run log** — append-only `run.log` in the run dir. Records each stage outcome with timestamp. Drives resume.
 - **Director-decisions file** — optional `.agent-runs/<run-id>/director-decisions.md` capturing human answers to questions the researcher surfaced. When present, binding for the planner.
+- **Judge** (v0.4) — a fresh-context subagent invoked by the orchestrator inside the executor stage to evaluate individual proposed tool calls against the manifest. Returns `allow`, `block`, `revise`, or `escalate`. Activated by the presence of `.pipelines/action-classification.yaml`.
+- **Action class** (v0.4) — the risk category for an executor tool call: `read_only`, `reversible_write`, `external_facing`, or `high_risk`. Determines routing (auto-execute, judge, or judge-plus-human-confirm).
+- **Escalation rate** (v0.4) — `(judged_escalate + human_blocked) / total_actions` in `judge-metrics.yaml`. Operator's tuning signal; high values indicate cookie-banner fatigue.
 
 ---
 

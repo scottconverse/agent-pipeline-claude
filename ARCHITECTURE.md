@@ -127,6 +127,7 @@ flowchart LR
     R --> E
     P --> E
     TW --> E
+    E --> JL["judge-log.yaml<br/>judge-metrics.yaml<br/>(orchestrator, v0.4)<br/>per-action records<br/>(only when judge<br/>layer is enabled)"]
     E --> POL["policy-report.md<br/>(automated)<br/>allowed_paths,<br/>no TODOs, ADRs"]
     POL --> V["verifier-report.md<br/>(verifier)<br/>independent check vs.<br/>manifest exit criteria"]
     I0 --> V
@@ -134,16 +135,20 @@ flowchart LR
     P --> V
     TW --> V
     E --> V
+    JL --> V
     V --> MGR["manager-decision.md<br/>(manager)<br/>PROMOTE / BLOCK / REPLAN<br/>cites verifier verbatim"]
     POL --> MGR
+    JL --> MGR
     I0 --> MGR
 
     classDef human fill:#ffd9b3,stroke:#cc6600,color:#000
     classDef agent fill:#cce5ff,stroke:#0066cc,color:#000
     classDef policy fill:#fff3b3,stroke:#999900,color:#000
+    classDef judge fill:#ccf2cc,stroke:#339933,color:#000
     class I0 human
     class R,P,TW,E,V,MGR agent
     class POL policy
+    class JL judge
 ```
 
 Two important properties of this flow:
@@ -302,7 +307,146 @@ Examples of project-specific checks worth adding:
 
 ---
 
-## 7. The run.log resume mechanism
+## 7. The judge layer (v0.4) — real-time action supervision
+
+The judge layer is **opt-in supervision inside the executor stage**. It is **not a new pipeline stage**. When `.pipelines/action-classification.yaml` exists in your project, the orchestrator uses Handler 3a (instead of the standard Handler 3) for the executor stage. Handler 3a wraps every executor tool call in a **classify → judge → execute** inner loop. The executor's role file is unchanged; the executor does not know the judge exists.
+
+### Why this is here
+
+Prompts don't hold across long context windows. The most expensive class of agent failure is not "the agent did nothing" but "the agent did the wrong thing because it confidently inferred authorization from inference instead of evidence." The classic example is the Lindy case (May 2026, Nate Jones): an agent sent 14 unauthorized emails because the operator's prior approvals trained the manifest-vs-action gap shut. Manual confirmation prompts don't help — operators learn to click "okay" reflexively.
+
+The architectural fix is a second agent (the judge) whose sole loyalty is the manifest, evaluated in **context isolation** from the executor's reasoning chain. The judge cannot be persuaded by the executor's logic because it never sees it. It receives only the manifest, the action policy, prior judge decisions, and the structured action proposal.
+
+### The classify → judge → execute inner loop
+
+```mermaid
+flowchart TB
+    Start([Executor proposes a tool call]) --> Classify[Classify against<br/>action-classification.yaml]
+    Classify --> Route{Action class?}
+
+    Route -- read_only --> AutoLog1[Execute action<br/>+ log auto_allow]
+    Route -- reversible_write --> AutoLog2[Execute action<br/>+ log auto_allow]
+    Route -- external_facing --> SpawnJudge[Spawn judge subagent<br/>with isolated context]
+    Route -- high_risk --> SpawnJudge
+
+    SpawnJudge --> Verdict{Judge verdict}
+
+    Verdict -- allow + external_facing --> Execute[Execute action<br/>+ log judged_allow]
+    Verdict -- allow + high_risk --> HumanConfirm[AskUserQuestion:<br/>APPROVE high-risk?]
+    Verdict -- block --> Halt([Halt pipeline<br/>+ log judged_block])
+    Verdict -- revise --> Revise[Send revision_instruction<br/>back to executor<br/>+ log judged_revise]
+    Verdict -- escalate --> HumanEscalate[AskUserQuestion:<br/>escalation_question]
+
+    HumanConfirm -- APPROVE --> ExecConfirmed[Execute action<br/>+ log human_confirmed]
+    HumanConfirm -- Block --> HaltHuman([Halt pipeline<br/>+ log human_blocked])
+
+    HumanEscalate -- APPROVE --> ExecEscalated[Execute action<br/>+ log human_confirmed]
+    HumanEscalate -- Block --> HaltHuman
+
+    Revise --> Retry[Executor produces<br/>revised proposal]
+    Retry --> Classify
+
+    AutoLog1 --> Continue([Continue executor loop])
+    AutoLog2 --> Continue
+    Execute --> Continue
+    ExecConfirmed --> Continue
+    ExecEscalated --> Continue
+
+    classDef agent fill:#cce5ff,stroke:#0066cc,color:#000
+    classDef judge fill:#ccf2cc,stroke:#339933,color:#000
+    classDef human fill:#ffd9b3,stroke:#cc6600,color:#000
+    classDef stop fill:#ffb3b3,stroke:#cc0000,color:#000
+
+    class Classify,Route agent
+    class SpawnJudge,Verdict judge
+    class HumanConfirm,HumanEscalate human
+    class Halt,HaltHuman stop
+```
+
+The revise loop has a hard cap of 3 cycles per `action_id`. On the 4th cycle, the orchestrator auto-escalates with the question "Executor proposed this action 4 times after revise verdicts; revision loop is not converging." This prevents the executor from looping indefinitely against a misaligned manifest.
+
+### The four risk classes
+
+Defined in `.pipelines/action-classification.yaml`. Rules are evaluated top-to-bottom within each class; first match wins.
+
+| Class | Examples | Routing |
+| :--- | :--- | :--- |
+| `read_only` | `cat`, `grep`, `ls`, `git log`, `pytest`, `ruff check` | Execute immediately + log |
+| `reversible_write` | `str_replace_editor`, `git commit`, `git add`, `cp`, `mv`, `pip install` | Execute immediately + log |
+| `external_facing` | `git push` (non-main, non-force), `gh pr create`, `curl -X POST`, `docker push`, `kubectl apply` | Judge required; ALLOW executes |
+| `high_risk` | `rm -rf`, `git push --force`, `git push main`, `DROP TABLE`, `npm publish`, `chmod` | Judge required; ALLOW + human confirm |
+
+Unmatched actions default to `reversible_write` — the safer assumption for any unclassified write-like action.
+
+### Context isolation — what the judge sees and doesn't see
+
+The judge is invoked as a fresh Claude subagent. The orchestrator deliberately supplies only the manifest, the matched action policy, prior judge decisions for this run (so the judge can detect re-proposals of blocked actions), and the structured action proposal block.
+
+```mermaid
+flowchart LR
+    subgraph Executor["Executor subagent"]
+        E_role["executor.md role file"]
+        E_context["Full run context<br/>(manifest, plan,<br/>research, prior artifacts)"]
+        E_reasoning["Internal reasoning chain<br/>(planning, retries,<br/>self-corrections)"]
+        E_action["Proposed tool call"]
+    end
+
+    subgraph Judge["Judge subagent (fresh context)"]
+        J_role["judge.md role file"]
+        J_manifest["manifest.yaml"]
+        J_policy["matched action policy<br/>(class + rule + note)"]
+        J_prior["prior judge_decisions/<br/>this run"]
+        J_proposal["action_proposal block"]
+    end
+
+    E_action -. orchestrator passes .-> J_proposal
+    E_reasoning -. NOT shared .-> Judge
+    E_context -. NOT shared .-> Judge
+
+    classDef agent fill:#cce5ff,stroke:#0066cc,color:#000
+    classDef judge fill:#ccf2cc,stroke:#339933,color:#000
+    class Executor agent
+    class Judge judge
+```
+
+This isolation is the mechanism. If the judge saw the executor's internal reasoning, it could be persuaded by the same chain of inferences that produced the over-broad action in the first place. Single-model-family correlated judgment defeats the purpose. Context isolation forces the judge to evaluate the action against the manifest only, using only what the executor cited as evidence.
+
+### Artifacts produced
+
+Two new files land in the run directory when the judge layer is active:
+
+- **`.agent-runs/<run-id>/judge-log.yaml`** — chronological log of every action: tool, arguments, matched class, disposition (auto_allow / judged_allow / judged_revise / judged_block / judged_escalate / human_confirmed / human_blocked), and the judge's reason and revision instruction when applicable. Both the verifier and the manager read this when reasoning about the executor's run.
+- **`.agent-runs/<run-id>/judge-metrics.yaml`** — aggregate counts: `total_actions`, `by_class`, `by_disposition`, `escalation_rate`, `judge_invocations`, `revision_cycles`. The escalation rate is the operator's tuning signal — see USER-MANUAL.md.
+
+A third internal directory holds per-action verdict files for replay and audit:
+
+- **`.agent-runs/<run-id>/judge-decisions/<action_id>.yaml`** — one YAML file per judged action, written by the judge subagent. The orchestrator parses these directly; they are also read by the next judge invocation as `prior_judge_decisions`.
+
+### When the judge is and isn't active
+
+- **`.pipelines/action-classification.yaml` exists in the project** → Handler 3a is used for the executor stage; the judge layer is active for that run.
+- **`.pipelines/action-classification.yaml` does not exist** → Handler 3 is used for the executor stage exactly as in v0.3 and earlier; the judge layer is inactive. No `judge-log.yaml` or `judge-metrics.yaml` is produced.
+
+The decision is made once at the start of the run. Adding or removing the file mid-run does not retroactively change a stage that has already completed; a resumed run picks up the on-disk state at resume time.
+
+### Relationship to other gates
+
+The judge does **not** replace any existing gate. It supplements them at a different layer:
+
+| Layer | Catches | When |
+| :--- | :--- | :--- |
+| Manifest gate | Wrong scope | Before any stage runs |
+| Plan gate | Wrong approach | Before any code is written |
+| **Judge (v0.4)** | **Unauthorized actions** | **In real time, during executor** |
+| Policy stage | Path violations, TODOs, ADR changes | After executor, before verifier |
+| Verifier stage | Manifest exit criteria not met | After policy |
+| Manager gate | Anything verifier marked NOT MET | Final gate before merge |
+
+The judge catches what the others can't: real-time interception of irreversible or external actions before they execute. The policy and verifier stages run **after** the executor has already done its work; the judge runs **during** the executor's work, so it can stop the action before it lands.
+
+---
+
+## 8. The run.log resume mechanism
 
 The `run.log` is the source of truth for "what's done." It is
 append-only. Each line is one stage outcome. The orchestrator parses it
@@ -345,7 +489,7 @@ This means:
 
 ---
 
-## 8. File layout — every file explained
+## 9. File layout — every file explained
 
 ```
 agentic-pipeline/                        # the plugin
@@ -366,13 +510,15 @@ agentic-pipeline/                        # the plugin
 │   ├── feature.yaml                     # 8-stage feature flow
 │   ├── bugfix.yaml                      # 7-stage bugfix flow
 │   ├── manifest-template.yaml           # blank skeleton
+│   ├── action-classification.yaml       # v0.4 — opt-in judge layer rules
 │   └── roles/
 │       ├── researcher.md                # surfaces director decisions
 │       ├── planner.md                   # produces plan.md §1-7
 │       ├── test-writer.md               # writes failing tests only
 │       ├── executor.md                  # makes tests green
 │       ├── verifier.md                  # independent fresh-context check
-│       └── manager.md                   # PROMOTE/BLOCK/REPLAN decision
+│       ├── manager.md                   # PROMOTE/BLOCK/REPLAN decision
+│       └── judge.md                     # v0.4 — per-action real-time verdict
 └── scripts/
     ├── __init__.py
     ├── check_allowed_paths.py           # diff vs. manifest allowed_paths
@@ -408,12 +554,16 @@ After `/pipeline-init`, your project gets:
         ├── policy-report.md
         ├── verifier-report.md
         ├── manager-decision.md
+        ├── judge-log.yaml               # v0.4 — written when judge layer is active
+        ├── judge-metrics.yaml           # v0.4 — written when judge layer is active
+        ├── judge-decisions/             # v0.4 — one YAML per judged action
+        │   └── exec-NNN.yaml
         └── run.log
 ```
 
 ---
 
-## 9. Extension points
+## 10. Extension points
 
 The plugin is designed for projects to extend, not fork. The places to
 extend:
@@ -425,6 +575,7 @@ extend:
 | New policy check | `scripts/policy/check_<name>.py` + entry in `CHECKS` | Exit 0 = pass, non-zero = fail; print to stdout |
 | Project conventions | `CLAUDE.md` | Roles read this; the planner is required to honor it |
 | Manifest fields | `.pipelines/manifest-template.yaml` | Add field + inline comment; downstream roles may reference it |
+| Judge classification rules | `.pipelines/action-classification.yaml` | Add entries under the appropriate class; first-match-wins per class; file presence opts the run into the judge layer |
 
 Anti-patterns to avoid:
 
@@ -441,7 +592,7 @@ Anti-patterns to avoid:
 
 ---
 
-## 10. Why these defaults
+## 11. Why these defaults
 
 Several non-obvious defaults exist because of real failures from prior
 projects.
@@ -464,7 +615,7 @@ decision worth recording in your project's `docs/adr/` directory.
 
 ---
 
-## 11. Sequence summary — what happens end-to-end
+## 12. Sequence summary — what happens end-to-end
 
 ```mermaid
 sequenceDiagram
@@ -509,7 +660,7 @@ sequenceDiagram
 
 ---
 
-## 12. Glossary
+## 13. Glossary
 
 - **Manifest** — the human-authored contract for a single run. Lists
   goal, allowed paths, forbidden paths, non-goals, expected outputs,
@@ -536,3 +687,18 @@ sequenceDiagram
 - **Cleanroom CI** — a Docker-based reproduction of the test environment
   with a fresh dependency set, used to catch "works on my machine"
   bugs that local pytest misses.
+- **Judge** (v0.4) — a fresh-context subagent whose only job is to
+  evaluate a single proposed executor action against the manifest and
+  return one of four verdicts: `allow`, `block`, `revise`, or
+  `escalate`. Context-isolated from the executor's reasoning chain by
+  design.
+- **Action class** (v0.4) — the risk category assigned to each executor
+  tool call by `.pipelines/action-classification.yaml`. One of
+  `read_only`, `reversible_write`, `external_facing`, or `high_risk`.
+  Determines whether the action is auto-executed, judged, or
+  judged-plus-human-confirmed.
+- **Escalation rate** (v0.4) — the fraction of executor actions that
+  reach a human via the judge layer. The operator's tuning signal:
+  too low means the classification rules are too permissive; too high
+  means the rules are too tight and trust is being eroded by the
+  cookie-banner effect.
