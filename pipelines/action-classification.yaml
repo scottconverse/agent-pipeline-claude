@@ -117,6 +117,22 @@ classification:
       tool: bash
       note: "Export an env var matching *PASSWORD=. Credential material."
 
+    - pattern: '\bnpm\s+install\b.*--global\b'
+      tool: bash
+      note: "Global npm install. Modifies system-wide state outside the project venv."
+
+    - pattern: '\bnpm\s+install\s+-g\b'
+      tool: bash
+      note: "Global npm install (-g shorthand). Modifies system-wide state outside the project venv."
+
+    - pattern: '\bsudo\b'
+      tool: bash
+      note: "sudo. Privilege escalation. Always judge."
+
+    - pattern: '\bgit\s+commit\b.*BREAKING'
+      tool: bash
+      note: "Commit with BREAKING in message. Conventional-commits semver-major signal; judge to confirm the scope is authorized."
+
   # ------------------------------------------------------------------
   # external_facing — leaves the local machine, affects external
   # systems (issue trackers, container registries, message endpoints).

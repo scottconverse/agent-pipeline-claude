@@ -128,6 +128,40 @@ The two address different failure modes. Use both for projects with two AI syste
 
 **Operator reference:** `docs/audit-handoff-handbook.md`.
 
+## v0.5: Single-AI hardened
+
+Six structural changes that make the pipeline run with **one AI** while still blocking drift and rogue-agent failures. Built from the design question: "can the pipeline do both action-level judge AND post-hoc audit with one AI?" Answer is yes — at the cost of accepting some correlated single-model-family blind spots, with explicit mitigations.
+
+### What changed
+
+- **Critic stage** (`pipelines/roles/critic.md`) — adversarial cold read of every artifact in a fresh context. Walks six lenses (engineering, UX, tests, docs, QA, scope). Emits a parseable `**Findings:**` count line. Structural substitute for cross-family verification.
+- **Drift-detector stage** (`pipelines/roles/drift-detector.md`) — compares manifest contract against assembled final state. Catches durable doc drift, status-word abuse, cross-file inconsistency, ledger top-totals vs row counts. Emits parseable `**Drift:**` count line.
+- **Pre-edit fact-forcing in executor** — before the first edit per file, the executor must produce importers/callers, public API affected, schema, and the manifest goal quoted verbatim. Forces investigation that catches blast-radius surprises before they hit the verifier.
+- **Expanded judge classification** — five new `high_risk` patterns: `npm install -g`, `sudo`, non-editable non-user `pip install`, `git commit` with BREAKING in message.
+- **Machine-checkable auto-promote** (`scripts/auto_promote.py`) — six conditions checked from the artifact stack: verifier-clean, critic-clean, drift-clean, policy-passed, judge-clean, tests-passed. When all six pass, the manager gate auto-fires; when any fails, the human gate remains.
+- **Strict manifest schema validation** (`scripts/check_manifest_schema.py`) — minimum-length `goal` and `definition_of_done`, non-empty `expected_outputs` / `non_goals` / `rollback_plan`, forbidden status words banned from manifest contracts, broad `allowed_paths` requires non-empty `forbidden_paths`. Fuzzy manifests fail at the start of the run, not after they cascade.
+
+### How the pipeline shape changes
+
+Pre-v0.5: `manifest → research → plan → test-write → execute → policy → verify → manager`
+
+v0.5: `manifest → research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager`
+
+The new three stages add ~10–20 minutes of wall-clock per run depending on artifact size. The auto-promote stage typically lands the manager decision in <30 seconds when the six conditions are green, eliminating the third human gate on clean runs.
+
+### Honest limit
+
+Single-model-family blind spots correlate. If both the executor and the critic share a wrong assumption that fits the manifest, both sign off and auto-promote fires green. Dual-AI (v0.3) is the only structural defense against this. **Recommended mitigation:** periodic sample audit by a different model family (Codex auditing Claude runs, or vice versa) on a weekly cadence. The v0.3 `/audit-init` discipline still applies; v0.5 does not replace it.
+
+### Stacking with v0.2, v0.3, v0.4
+
+- v0.2 catches execution-cascade failures (pre-executor).
+- v0.3 catches drift failures via cross-family audit (post-executor, separate session).
+- v0.4 catches unauthorized actions in real time (during executor).
+- **v0.5 catches the drift class without needing a second AI** (during verify → drift-detect → critique → auto-promote).
+
+The four stack. Most projects run v0.4 + v0.5 by default and reach for v0.3 when they have two model families available.
+
 ## v0.4: Judge layer
 
 Real-time action-level supervision **inside** the executor stage. This is not a new pipeline stage; it is opt-in infrastructure that intercepts the executor's tool calls, classifies each one by risk, and spawns a judge subagent for the dangerous ones. Built from the Lindy case study (May 2026, Nate Jones, "LLM-as-Judge"): an agent that sent 14 unauthorized emails because manual confirmation prompts had trained the operator to click "okay" reflexively. Prompts don't hold across long context; the architectural fix is a second agent whose sole loyalty is the manifest.

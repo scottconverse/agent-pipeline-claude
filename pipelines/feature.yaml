@@ -45,7 +45,22 @@ stages:
     role: verifier
     artifact: verifier-report.md
 
+  - name: drift-detect
+    role: drift-detector
+    artifact: drift-report.md
+
+  - name: critique
+    role: critic
+    artifact: critic-report.md
+
+  - name: auto-promote
+    role: pipeline
+    command: python scripts/policy/auto_promote.py --run {run_id}
+    artifact: auto-promote-report.md
+    optional_artifact: true
+
   - name: manager
     role: manager
     artifact: manager-decision.md
     gate: human_approval
+    auto_promote_aware: true

@@ -8,6 +8,56 @@ leaves beta. While in `0.1.x-beta`, breaking changes to slash-command
 arguments, manifest fields, or role-file contracts may land in any
 release; the `CHANGELOG` will call them out.
 
+## [0.5.0] — 2026-05-11
+
+The single-AI hardened release. Six structural changes that compensate for dropping dual-AI cross-family verification: two new agent roles (critic, drift-detector), pre-edit fact-forcing in the executor, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation. Built from the design question "can the pipeline do both action-level judge AND post-hoc audit with one AI?" Answer: yes, with the structural defense in this release.
+
+The release is a structural substitute for the dual-AI audit-handoff discipline (v0.3) when running with a single AI. Existing dual-AI projects keep working; nothing in this release removes capability. The shipped honest limit: same-model-family verification cannot fully replace cross-family verification. The CHANGELOG entry below names the residual risk and the recommended mitigation.
+
+### Added
+
+- `pipelines/roles/critic.md` — adversarial critic role file. Fires after the verifier in a fresh context. Reads every artifact cold and produces a structured findings report with a parseable §2 count line (`**Findings: T total, B blocker, C critical, M major, N minor**`). Walks six adversarial lenses: engineering, UX, tests, docs, QA, scope. Hard rules forbid encouragement, severity softening, "no findings" without per-lens evidence, and trusting the verifier or executor at face value. Structural substitute for cross-family verification in single-AI runs.
+- `pipelines/roles/drift-detector.md` — drift-detector role file. Fires after the verifier (before the critic). Compares manifest fields against the final assembled state. Catches the gap class neither the judge (per-action) nor the verifier (per-criterion) can see — durable doc drift, cross-file consistency, status-word abuse, ledger top-totals vs row counts, "Closed" without evidence. Emits parseable §2 count line (`**Drift: T total, B blocker**`).
+- `scripts/check_manifest_schema.py` — manifest schema validator. Wired into both run-pipeline.md Phase A2 (run-start, before any stage fires) and `scripts/run_all.py` CHECKS (policy stage, defense in depth). Rules: `goal` >= 30 chars, `definition_of_done` >= 80 chars, `expected_outputs` non-empty, `non_goals` non-empty, `rollback_plan` non-empty, broad `allowed_paths` requires non-empty `forbidden_paths`, forbidden status words (`done`, `complete`, `ready`, `shippable`, `taggable`) banned from goal/dod. The fuzzy-manifest class of failure now blocks at the gate before it cascades into downstream work.
+- `scripts/auto_promote.py` — machine-checkable promote decision. Reads verifier-report.md, critic-report.md, drift-report.md, policy-report.md, judge-metrics.yaml (when present), and implementation-report.md. Evaluates six conditions: verifier-clean (zero NOT MET, zero PARTIAL), critic-clean (zero blocker, zero critical), drift-clean (zero blocker), policy-passed, judge-clean (zero judged_block, zero human_blocked, vacuous when judge inactive), tests-passed. When all six pass, writes a preset `manager-decision.md` with `**Decision: PROMOTE**` and a citation block; otherwise writes `auto-promote-report.md` naming the failing conditions and exits 1.
+
+### Changed
+
+- `pipelines/roles/executor.md` — added a "Pre-edit fact-forcing gate" section. Before the first edit/write to any file in the run, the executor must produce a fact block (importers/callers, public API affected, data schema touched, manifest goal quoted verbatim) either inline in `implementation-report.md` or in `.agent-runs/<run-id>/notes/pre-edit-<filename>.md`. The drift-detector and critic stages check for the block and treat its absence as a finding on any touched file.
+- `pipelines/roles/verifier.md` — added §0 "Criteria count line" requirement. The verifier must emit `**Criteria: T total, M MET, P PARTIAL, N NOT MET, A NOT APPLICABLE**` as a parseable line so `auto_promote.py` can read the verdict count without scanning the full report.
+- `pipelines/roles/manager.md` — added "Auto-promote awareness (v0.5)" section. When `manager-decision.md` already exists with `**Decision: PROMOTE**` as the first line (auto-promote preset), the manager runs in validate-and-append mode instead of re-deciding. Inputs list extended with drift-report.md, critic-report.md, auto-promote-report.md, and judge-log.yaml/judge-metrics.yaml when present. PROMOTE criteria extended: critic blocker/critical = 0, drift blocker = 0, judge judged_block + human_blocked = 0.
+- `pipelines/action-classification.yaml` — five new patterns under `high_risk`: `npm install --global` and `npm install -g`, `sudo`, `pip install` (non-editable, non-user), `git commit` with BREAKING in the message. Each tightens action-time defense against the failure modes operators most commonly cite.
+- `pipelines/feature.yaml` — three new stages between `verify` and `manager`: `drift-detect`, `critique`, `auto-promote`. Manager stage gets `auto_promote_aware: true` flag.
+- `pipelines/bugfix.yaml` — same three new stages and the manager flag.
+- `pipelines/module-release.yaml` — three new phases between `phase4-verify` and `phase5-manager`: `phase4b-drift-detect`, `phase4c-critique`, `phase4d-auto-promote`. `phase5-manager` gets `auto_promote_aware: true`.
+- `commands/run-pipeline.md` — Phase A2 now invokes `check_manifest_schema.py` before any stage runs. Handler 2 (`role: pipeline`) handles `optional_artifact: true` for the auto-promote stage. New **Handler 4** for `role: manager` with `auto_promote_aware: true`: checks for the preset, short-circuits the human gate when present, falls through to standard Handler 3 + Handler 1 when absent.
+- `scripts/run_all.py` — `check_manifest_schema` added to `CHECKS` list. Runs first so a fuzzy manifest fails the policy stage even if it slipped past Phase A2.
+
+### Why each piece exists
+
+- **Critic stage.** v0.4's judge catches per-action scope violations in real time, but doesn't read the assembled output. The verifier reads the assembled output, but in the same model family as the executor — correlated blind spots are exactly the class of failure neither catches. The critic runs in a fresh context with a deliberately adversarial role contract.
+- **Drift-detector stage.** Drift between manifest contract and durable artifacts is invisible to per-action and per-criterion verification. It only surfaces when you compare the manifest's promises to the assembled final state.
+- **Pre-edit fact-forcing in executor.** Asking an LLM "are you sure?" is useless. Demanding concrete artifacts (importer list, schema, instruction quote) forces investigation that catches blast-radius surprises before they hit the verifier.
+- **Expanded judge classification.** Global npm installs leak project-level promises into system-level state; sudo escalations sidestep manifest scope; non-editable pip installs in shared environments produce non-reversible side effects; BREAKING-marked commits are semver-major signals deserving explicit confirmation.
+- **Machine-checkable auto-promote.** The manager gate becomes auto-firing when all six structural conditions hold. Humans get the time back without losing the gate — when any condition fails, the human gate is still there.
+- **Strict manifest schema validation.** Every drift cascade investigated in prior projects traced back to a fuzzy manifest. The schema check makes the fuzzy state fail-fast.
+
+### Stacking with v0.2, v0.3, v0.4
+
+- v0.2 module-release pipeline: catches execution-cascade failures (pre-existing CI bugs, tag-move dances, halt-and-ask loops). Pre-executor.
+- v0.3 dual-AI audit-handoff: catches drift failures via cross-family separation of duties. Post-executor, separate session.
+- v0.4 judge layer: catches unauthorized actions in real time. During executor.
+- **v0.5 hardened single-AI**: catches the drift class without needing a second AI, at the cost of accepting some correlated blind spots. During verify -> drift-detect -> critique -> auto-promote.
+
+Use v0.3 when you have two model families available. Use v0.5 when you want single-AI operation. The two stack — projects can run both, with v0.3's cross-family audit firing on a sample of v0.5 runs.
+
+### Known limitations
+
+- **Correlated single-model-family blind spots.** Critic and verifier are both same-model-family. If both agents share a wrong assumption that fits the manifest, both sign off and the auto-promote fires green. Dual-AI is the only structural defense against this. Mitigation: periodic sample audit by a different model family on a weekly cadence or after every Nth run. The v0.3 `/audit-init` discipline still applies.
+- **Auto-promote depends on parseable count lines.** The verifier, critic, and drift-detector role files explicitly require the count-line format. If a role file is customized in a way that drops or malforms the line, auto_promote.py treats the run as NOT_ELIGIBLE and falls back to the human gate.
+- **The judge layer still fires only on the executor stage.** Even with v0.5 active, the judge does not intercept critic, drift-detector, or verifier actions. Those roles are read-only by contract.
+- **Schema validation cannot verify manifest correctness, only structure.** A confident-wrong manifest that satisfies every schema rule still produces wrong work. The manifest gate (human) remains the only place the manifest's content is reviewed.
+
 ## [0.4.0] — 2026-05-11
 
 The judge layer. Real-time action-level supervision inside the executor stage. Built from Nate Jones, "LLM-as-Judge" (May 2026). The Lindy case study — an agent that sent 14 unauthorized emails because operator-trained-reflex APPROVE clicking defeated manual confirmation — showed that prompts don't hold across long context, and per-action confirmation alone breeds the cookie-banner effect. The architectural fix is a second agent (the judge) whose sole loyalty is the manifest, evaluated in context isolation from the executor's reasoning chain.
