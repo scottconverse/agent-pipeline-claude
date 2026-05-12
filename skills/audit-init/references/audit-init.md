@@ -1,9 +1,4 @@
----
-description: Scaffold dual-AI audit-handoff infrastructure for a project — out-of-repo audit gate + protocol and in-repo 5-lens self-audit. For projects where one AI implements and a different AI audits.
-argument-hint: (none — interactive)
----
-
-# /audit-init — scaffold dual-AI audit infrastructure
+# Audit-init procedure — scaffold dual-AI audit infrastructure
 
 You are setting up the audit-handoff discipline for a project that uses two AI systems: one implements, the other audits. This complements `/pipeline-init`'s execution-side discipline (research → plan → execute → verify) with a verification-side discipline that catches drift the implementing agent misses.
 

@@ -1,9 +1,4 @@
----
-description: Initialize a project for pipeline runs. Reads your project's existing docs (or a PRD/description you point at), scaffolds .pipelines/ + scripts/policy/, and writes a starter CLAUDE.md if missing.
-argument-hint: "(optional) PRD path | repo URL | description"
----
-
-# /pipeline-init — onboard a project
+# Pipeline-init procedure — onboard a project
 
 You are onboarding a project for use with the agent-pipeline-claude plugin. Most projects only need to run this once.
 

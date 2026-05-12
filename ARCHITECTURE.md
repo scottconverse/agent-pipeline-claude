@@ -3,12 +3,7 @@
 How the agent-pipeline-claude plugin is organized, what runs where, and which
 artifact each stage produces.
 
-**Current version: v1.0.0.** The v1.0 release rebuilt the user-facing surface
-around four load-bearing decisions (Cowork-first, spec-aware drafting, one
-slash command, chat-native gates) while preserving every v0.5 hardening
-mechanism intact. This document describes the v1.0 architecture; the
-historical v0.5 stage names + command shapes are referenced where the v1.0
-flow is a thin orchestration change over a preserved mechanism.
+**Current version: v1.1.0.** v1.1 fixes the install/runtime adapter that v1.0.0–v1.0.2 got wrong (one layout, namespaced invocation, validating marketplace manifest, self-contained skills) without changing pipeline behavior. v1.0 rebuilt the user-facing surface around four load-bearing decisions (Cowork-first, spec-aware drafting, one slash skill, chat-native gates) while preserving every v0.5 hardening mechanism intact. This document describes the v1.1 architecture; v0.5 stage names are referenced where the current flow is a thin orchestration change over a preserved mechanism.
 
 This document is for two audiences:
 
@@ -42,7 +37,7 @@ flowchart TB
     subgraph PluginLayer["Plugin layer (one install per machine)"]
         direction LR
         A1[".claude-plugin/plugin.json"]
-        A2["commands/<br/>pipeline-init<br/>new-run<br/>run-pipeline"]
+        A2["skills/<br/>pipeline-init/SKILL.md<br/>run/SKILL.md<br/>audit-init/SKILL.md"]
         A3["pipelines/<br/>feature.yaml<br/>bugfix.yaml<br/>roles/*.md"]
         A4["scripts/<br/>check_*.py<br/>run_all.py"]
     end
@@ -61,22 +56,27 @@ flowchart TB
     end
 
     PluginLayer -- "/pipeline-init copies into" --> ProjectLayer
-    ProjectLayer -- "/run produces (v1.0); /new-run + /run-pipeline shims still work" --> RunLayer
+    ProjectLayer -- "/agent-pipeline-claude:run produces" --> RunLayer
 ```
 
 The strict separation matters: when an agent stage runs, it only sees the
 project layer and the run layer. The plugin layer is read-only template
 material; once scaffolded, your project's behavior is yours.
 
-### v1.0 surface change: one slash command, drafted manifest
+### v1.0 → v1.1 surface change: one namespaced skill, drafted manifest
 
-v0.5.2 exposed three slash commands: `/pipeline-init` for onboarding, `/new-run` to create a blank manifest, and `/run-pipeline` to orchestrate. The user hand-authored 11 manifest fields between `/new-run` and `/run-pipeline`.
+v0.5.2 exposed three slash commands: `/pipeline-init`, `/new-run`, `/run-pipeline`. The user hand-authored 11 manifest fields between `/new-run` and `/run-pipeline`.
 
-v1.0 collapses the run-time surface to one command: `/run "<short description>"`. Before the first pipeline stage executes, `/run` spawns a **manifest-drafter** subagent (a new role file: `.pipelines/roles/manifest-drafter.md`). The drafter walks the project root for spec, release-plan, scope-lock, design-note, ADR, `CLAUDE.md`, and ledger artifacts, then writes a populated `manifest.yaml` plus a `draft-provenance.md` audit trail. The user reviews the drafted YAML in chat and replies `APPROVE` to start the pipeline.
+v1.0 collapsed the run-time surface to one command: `/run "<short description>"`. Before the first pipeline stage executes, `/run` spawns a **manifest-drafter** subagent (`.pipelines/roles/manifest-drafter.md`). The drafter walks the project root for spec, release-plan, scope-lock, design-note, ADR, `CLAUDE.md`, and ledger artifacts, then writes a populated `manifest.yaml` plus a `draft-provenance.md` audit trail. The user reviews the drafted YAML in chat and replies `APPROVE` to start the pipeline.
 
-The mechanism downstream of the manifest gate is unchanged from v0.5.2. The drafter is a pre-stage that produces the manifest the existing manifest-gate consumes.
+v1.1 fixes the install adapter v1.0 got wrong:
 
-The legacy `/new-run` and `/run-pipeline` commands survive in v1.0 as deprecated shims (they print a notice and offer to delegate to `/run`) and will be removed at v1.1.
+- **Plugin skills are namespaced.** Per the [Claude Code plugin docs](https://code.claude.com/docs/en/plugins), all marketplace plugin skills are invoked as `/<plugin-name>:<skill-name>`. The bare `/run` form documented in v1.0 was never reachable. The canonical form is `/agent-pipeline-claude:run`.
+- **One layout (`skills/`).** v1.0.1 added a `skills/` mirror alongside `commands/`, causing every skill to register twice. v1.1 removes `commands/` entirely. Each skill is `skills/<name>/SKILL.md` (thin shim with frontmatter + tool mapping) plus `skills/<name>/references/<name>.md` (canonical procedure).
+- **Marketplace manifest validates.** `marketplace.json` no longer carries an unrecognized root `description`; it lives under `metadata`.
+- **Deprecated shims removed.** `/new-run` and `/run-pipeline` were marked deprecated in v1.0 for v1.1 removal. They are now gone.
+
+The mechanism downstream of the manifest gate is unchanged from v0.5.2.
 
 ---
 
@@ -497,7 +497,7 @@ A `role: pipeline` stage that runs `scripts/auto_promote.py`. It reads the artif
 5. Judge-clean: zero `judged_block` and zero `human_blocked` dispositions (vacuous when the v0.4 judge layer is inactive).
 6. Tests-passed: a recognizable `N passed[, 0 failed]` or `all tests passed` signal in `implementation-report.md`.
 
-When all six pass, the script writes a preset `manager-decision.md` with `**Decision: PROMOTE**` and a citation block naming the evidence for each condition. The manager stage detects the preset (per Handler 4 in `commands/run-pipeline.md`) and short-circuits the human-approval gate, advancing the pipeline automatically.
+When all six pass, the script writes a preset `manager-decision.md` with `**Decision: PROMOTE**` and a citation block naming the evidence for each condition. The manager stage detects the preset (per Handler 4 in `skills/run/references/run.md`) and short-circuits the human-approval gate, advancing the pipeline automatically.
 
 When any condition fails, the script writes `auto-promote-report.md` naming which conditions failed and exits 1. The manager stage runs normally with the human-approval gate active.
 
@@ -571,12 +571,19 @@ agent-pipeline-claude/                        # the plugin
 ├── LICENSE                              # Apache-2.0
 ├── docs/
 │   └── index.html                       # GitHub Pages landing page
-├── commands/
-│   ├── run.md                           # /run logic (v1.0 entry point: drafts manifest + orchestrates)
-│   ├── pipeline-init.md                 # /pipeline-init logic
-│   ├── new-run.md                       # DEPRECATED v1.0 shim; removed at v1.1
-│   ├── run-pipeline.md                  # DEPRECATED v1.0 shim; removed at v1.1
-│   └── audit-init.md                    # /audit-init logic (v0.3 dual-AI scaffold)
+├── skills/
+│   ├── run/
+│   │   ├── SKILL.md                     # thin shim — frontmatter + tool mapping
+│   │   └── references/
+│   │       └── run.md                   # canonical procedure: drafts manifest + orchestrates
+│   ├── pipeline-init/
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       └── pipeline-init.md
+│   └── audit-init/
+│       ├── SKILL.md
+│       └── references/
+│           └── audit-init.md
 ├── pipelines/
 │   ├── feature.yaml                     # 8-stage feature flow
 │   ├── bugfix.yaml                      # 7-stage bugfix flow
@@ -598,6 +605,8 @@ agent-pipeline-claude/                        # the plugin
     ├── check_allowed_paths.py           # diff vs. manifest allowed_paths
     ├── check_no_todos.py                # scan for TODO/FIXME/HACK
     ├── check_adr_gate.py                # ADRs are append-only
+    ├── check_skill_packaging.py         # v1.1 — every SKILL.md only references its own folder
+    ├── auto_promote.py                  # six-condition machine-checkable promote
     └── run_all.py                       # check runner
 ```
 
@@ -657,7 +666,7 @@ Anti-patterns to avoid:
   manager's verdict becomes meaningless.
 - Editing the manifest mid-run. The orchestrator treats the manifest as
   immutable; if it needs to change, the manager returns REPLAN and you
-  re-issue `/run` (or `/new-run` if using the v0.5.x legacy shim).
+  re-issue `/agent-pipeline-claude:run`.
 - Adding a stage that produces multiple artifacts. The pipeline's resume
   logic and the verifier's input both depend on one-artifact-per-stage.
 - Removing the manifest, plan, or manager gates. The plugin is built
@@ -700,15 +709,15 @@ sequenceDiagram
     participant Proj as your project
     participant Runs as .agent-runs/&lt;run-id&gt;/
 
-    U->>CC: /pipeline-init
-    CC->>Plugin: read commands/pipeline-init.md
+    U->>CC: /agent-pipeline-claude:pipeline-init
+    CC->>Plugin: read skills/pipeline-init/SKILL.md + references/pipeline-init.md
     CC->>U: ask: PRD / repo / description?
     U->>CC: PRD path or repo URL or description
     CC->>Proj: scaffold .pipelines/, scripts/policy/, CLAUDE.md
-    CC->>U: orientation summary; suggest /run
+    CC->>U: orientation summary; suggest /agent-pipeline-claude:run
 
-    U->>CC: /run "short description"
-    CC->>Plugin: read commands/run.md
+    U->>CC: /agent-pipeline-claude:run "short description"
+    CC->>Plugin: read skills/run/SKILL.md + references/run.md
     CC->>CC: spawn manifest-drafter subagent (pre-stage)
     CC->>Proj: drafter walks spec/release-plan/scope-lock/CLAUDE.md/...
     CC->>Runs: create dir; drafter writes manifest.yaml + draft-provenance.md

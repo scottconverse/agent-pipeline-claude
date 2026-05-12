@@ -1,9 +1,4 @@
----
-description: Start a pipeline run. Drafts a scope contract from your project's spec and presents it for chat-message APPROVE, then orchestrates research → plan → execute → verify → critique end-to-end.
-argument-hint: '"<short description>" | resume <run-id> | status'
----
-
-# /run — drafted-and-driven pipeline run
+# Run procedure — drafted-and-driven pipeline run
 
 You are the single entry point for a pipeline run. Replaces v0.5.2's separate `/new-run` + `/run-pipeline`.
 

@@ -5,6 +5,70 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-05-12
+
+**Install/runtime adapter rewrite. Pipeline behavior unchanged.**
+
+v1.0.0–v1.0.2 had three load-bearing bugs that compounded into "the plugin doesn't work in Cowork":
+
+1. **Plugin skills are namespaced.** Per the [official Claude Code plugin docs](https://code.claude.com/docs/en/plugins), all marketplace plugin skills are invoked as `/<plugin-name>:<skill-name>` — never bare. v1.0 README and USER-MANUAL documented `/run` as the canonical form, which was never reachable. The bare form is reserved for standalone `.claude/commands/` files, not marketplace plugins.
+2. **`commands/` and `skills/` were both populated.** v1.0.1 added a `skills/` mirror to make Cowork-loadability "more reliable" without removing `commands/`. The result: every skill registered twice in one plugin, causing Cowork's slash resolver to fail on bare names and the autocomplete to show duplicates.
+3. **`marketplace.json` failed validation.** A root `description` field was silently rejected by `claude plugin validate` ("Unrecognized key: description"). Even with the plugin manifest fix from v1.0.2, the marketplace layer above it was still broken.
+
+This release fixes all three structurally and ports the proven packaging pattern from `agent-pipeline-codex`.
+
+### Fixed
+
+- **`.claude-plugin/marketplace.json`** — removed root `description`; moved into `metadata` per the marketplace schema. `claude plugin validate .` now passes.
+- **Skills are now namespaced-only.** Documented invocation throughout: `/agent-pipeline-claude:run`, `/agent-pipeline-claude:pipeline-init`, `/agent-pipeline-claude:audit-init`. README, USER-MANUAL, and ARCHITECTURE rewritten.
+- **`/agent-pipeline-claude:run` actually loads in Cowork.** Verified via `claude plugin list` showing `Status: ✔ loaded` at v1.1.0 against an isolated `--plugin-dir` test copy.
+
+### Removed
+
+- **`commands/` directory entirely.** v1.1 ships only `skills/`. Anthropic's [plugin docs](https://code.claude.com/docs/en/plugins) explicitly recommend `skills/` for new plugins ("`commands/`: Skills as flat Markdown files. Use skills/ for new plugins").
+- **`commands/new-run.md` + `commands/run-pipeline.md` shims** — deprecation period over. They were marked for v1.1 removal in v1.0; never functional in Cowork because v1.0.0–v1.0.2 never loaded.
+- **`skills/new-run/` + `skills/run-pipeline/`** — same.
+
+### Changed (structural)
+
+- **Skills are self-contained per Codex's pattern.** Each `skills/<name>/SKILL.md` is a thin shim (~25 lines) with frontmatter + tool-mapping notes; the canonical procedure lives in `skills/<name>/references/<name>.md`. Enables progressive disclosure (Anthropic's recommended pattern) and prevents `../../commands/...` traversal that breaks once skills are copied to install locations.
+- **`scripts/check_skill_packaging.py`** — new validator ported from `agent-pipeline-codex/scripts/check_skill_packaging.py`. Walks every `skills/<name>/SKILL.md`, copies the skill folder to a fresh temp directory, and verifies every backtick-quoted `references/...` path resolves. Catches the entire bug class of "works in source tree, breaks after install."
+
+### Verification evidence
+
+```
+$ claude plugin validate ~/.claude/plugins/marketplaces/agent-pipeline-claude
+Validating marketplace manifest: ...\.claude-plugin\marketplace.json
+✔ Validation passed
+
+$ python scripts/check_skill_packaging.py
+SKILL-PACKAGING: PASSED (3 skills validated)
+
+$ python tests/check_plugin_structure.py
+Plugin structure check
+  skills:    3
+  commands:  0
+  roles:     14
+  pipelines: 5
+ALL CHECKS PASSED
+
+$ claude --plugin-dir /tmp/agent-pipeline-claude-test plugin list
+Session-only plugins (--plugin-dir):
+  ❯ agent-pipeline-claude@inline
+    Version: 1.1.0
+    Status: ✔ loaded
+```
+
+### Action required
+
+After upgrading the plugin install to v1.1.0:
+
+1. **Fully quit and restart Cowork** (Quit/Exit, not just close the conversation window).
+2. Use the namespaced form: `/agent-pipeline-claude:run "..."`. The bare `/run` form documented in v1.0 was never reachable.
+3. If you scripted against `/new-run` or `/run-pipeline`, replace with `/agent-pipeline-claude:run`.
+
+Pipeline behavior, manifest schema, role files, and policy scripts are unchanged from v1.0.
+
 ## [1.0.2] — 2026-05-11
 
 **Critical manifest fix — v1.0.0 and v1.0.1 never actually loaded.**
