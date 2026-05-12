@@ -5,6 +5,39 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-05-11
+
+**Critical manifest fix — v1.0.0 and v1.0.1 never actually loaded.**
+
+`claude plugin list` reveals the real story: in v1.0.0 and v1.0.1, the plugin manifest at `.claude-plugin/plugin.json` had `repository` as an npm-style object (`{"type": "git", "url": "..."}`), but Claude Code's plugin schema requires a plain string. The loader **rejected the entire manifest**:
+
+```
+Status: ✘ failed to load
+Validation errors: repository: Invalid input: expected string, received object
+```
+
+A failed manifest means the plugin's commands AND skills never register. That's why `/run` did nothing in Cowork for two releases — not because of `commands/` vs `skills/` layout, not because of YAML parse errors (those existed too, but were secondary). The primary bug was that the entire plugin failed to load at the manifest stage.
+
+Also surfaced: latent YAML parse error in `commands/run.md` and `skills/run/SKILL.md` `argument-hint` line (closing quote followed by unquoted text — invalid YAML). Inherited from v0.5.2 in commands/, copied forward into skills/ during v1.0.1. Would have broken /run specifically even after the manifest loaded.
+
+### Fixed
+
+- **`.claude-plugin/plugin.json` `repository` field** — changed from npm-style `{type, url}` object to plain string per Claude Code plugin schema. This single change unblocks the entire plugin.
+- **`commands/run.md` frontmatter** — `argument-hint` rewritten as single-quoted YAML scalar so it parses cleanly.
+- **`skills/run/SKILL.md` frontmatter** — same fix.
+
+### Added
+
+- **`tests/check_plugin_structure.py`** — comprehensive validator that runs every commit-worthy plugin artifact through real YAML/JSON parsers and checks required fields. Catches both bug classes from v1.0.0–v1.0.1 in one pass. Use before any push that touches manifests, commands, skills, or roles.
+
+### Verification
+
+`claude plugin list` after the v1.0.2 patch shows `Status: ✔ enabled`. (Same load succeeds in Cowork — Cowork uses the same plugin loader.)
+
+### Action required for v1.0.0 / v1.0.1 users
+
+After upgrading the install to v1.0.2, **fully quit Cowork and restart** (not just open a new conversation — the plugin metadata is read at app startup). Then `/run status` should be recognized.
+
 ## [1.0.1] — 2026-05-11
 
 Critical Cowork compatibility fix. v1.0.0 shipped the primary `/run` entry point as a plugin command under `commands/run.md`, but Cowork only loads plugin-provided user commands from the `skills/<name>/SKILL.md` layout. Net result on v1.0.0: every Cowork user typing `/run` saw *"/run isn't a recognized command here. Some commands only work in the Claude Code terminal."* — making the plugin's primary UX unreachable for the audience it was specifically rewritten for.
