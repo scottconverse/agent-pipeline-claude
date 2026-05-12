@@ -30,7 +30,7 @@ ls                    # What's at the root?
 git log --oneline -5  # Recent commits — gives context on the project's life
 ```
 
-Look for spec / release-plan / scope-lock / design-note artifacts using the same patterns the manifest-drafter walks (see `pipelines/roles/manifest-drafter.md` § "Source-walking protocol"). Look for stack indicators: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, etc. Look for `.github/workflows/`, `docs/adr/`, `CLAUDE.md`.
+Look for spec / release-plan / scope-lock / design-note artifacts using the same patterns the manifest-drafter walks (see `references/pipeline-payload/pipelines/roles/manifest-drafter.md` § "Source-walking protocol"). Look for stack indicators: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, etc. Look for `.github/workflows/`, `docs/adr/`, `CLAUDE.md`.
 
 ### Step 2 — produce a one-message orientation summary
 
@@ -57,15 +57,23 @@ Do NOT scaffold without an explicit `APPROVE`.
 
 When the user replies `APPROVE`:
 
-1. **`.pipelines/` directory.** Copy from the plugin's `pipelines/` directory into the project root:
+**Source of truth for the scaffolded files:** the bundled payload at
+`references/pipeline-payload/` inside this skill (resolved relative to the
+skill's install directory — `skills/pipeline-init/`). The payload ships INSIDE
+the skill so it's always available, including when the plugin runs from an
+installed cache where the repo-root `pipelines/` and `scripts/` paths don't
+exist.
+
+1. **`.pipelines/` directory.** Copy from `references/pipeline-payload/pipelines/` into the project root as `.pipelines/`:
    - `feature.yaml`
    - `bugfix.yaml`
    - `module-release.yaml` (if user wants module-release support; default yes for projects with version files)
    - `manifest-template.yaml`
    - `self-classification-rules.md`
-   - `roles/` (all role files, including the new `manifest-drafter.md`)
+   - `roles/` (all role files, including `manifest-drafter.md`)
+   - `templates/` (the audit-handoff templates)
 
-2. **`scripts/policy/` directory.** Copy from the plugin's `scripts/`:
+2. **`scripts/policy/` directory.** Copy from `references/pipeline-payload/scripts/` into the project root as `scripts/policy/`:
    - `__init__.py`
    - `check_manifest_schema.py`
    - `check_allowed_paths.py`

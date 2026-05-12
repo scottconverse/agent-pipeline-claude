@@ -46,10 +46,14 @@ Before writing anything:
 
 ## Step 3 — Scaffold the three artifacts
 
-Read the three template files from the plugin:
-- `pipelines/templates/audit-gate-template.md`
-- `pipelines/templates/audit-protocol-template.md`
-- `pipelines/templates/5-lens-self-audit-template.md`
+Read the three template files bundled inside this skill (resolve relative to the
+skill's install directory — `skills/audit-init/`). The templates ship inside the
+skill folder so they're always available, including when the plugin is loaded
+from an installed cache where the repo-root `pipelines/templates/` path doesn't
+exist:
+- `references/audit-gate-template.md`
+- `references/audit-protocol-template.md`
+- `references/5-lens-self-audit-template.md`
 
 For each, perform placeholder substitution:
 - `<PROJECT_NAME>` → captured value

@@ -7,7 +7,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [1.1.0] — 2026-05-12
 
-**Install/runtime adapter rewrite. Pipeline behavior unchanged.**
+**Install/runtime adapter rewrite + bundled-payload merge. Pipeline behavior unchanged.**
+
+This release merges the loader-facing UX fixes from the rewrite/v1.1.0 branch with the bundled-payload structure independently developed in agent-pipeline-codex. The merge addresses both classes of bug found in v1.0.0–v1.0.2: (a) the plugin doesn't load in Cowork, and (b) when it does load, the procedures point at repo-root paths that don't exist in installed caches.
 
 v1.0.0–v1.0.2 had three load-bearing bugs that compounded into "the plugin doesn't work in Cowork":
 
@@ -32,7 +34,11 @@ This release fixes all three structurally and ports the proven packaging pattern
 ### Changed (structural)
 
 - **Skills are self-contained per Codex's pattern.** Each `skills/<name>/SKILL.md` is a thin shim (~25 lines) with frontmatter + tool-mapping notes; the canonical procedure lives in `skills/<name>/references/<name>.md`. Enables progressive disclosure (Anthropic's recommended pattern) and prevents `../../commands/...` traversal that breaks once skills are copied to install locations.
-- **`scripts/check_skill_packaging.py`** — new validator ported from `agent-pipeline-codex/scripts/check_skill_packaging.py`. Walks every `skills/<name>/SKILL.md`, copies the skill folder to a fresh temp directory, and verifies every backtick-quoted `references/...` path resolves. Catches the entire bug class of "works in source tree, breaks after install."
+- **Bundled audit templates inside `skills/audit-init/references/`.** The three templates (`audit-gate-template.md`, `audit-protocol-template.md`, `5-lens-self-audit-template.md`) ship inside the skill folder. The procedure file points at the bundled copies, not at the repo-root `pipelines/templates/` path that won't resolve from installed caches.
+- **Bundled the entire pipeline payload at `skills/pipeline-init/references/pipeline-payload/`.** All 32 files (pipeline definitions, role files, policy scripts) the `/pipeline-init` skill scaffolds into a consumer's project now live inside the skill folder. The procedure copies from the bundled payload, not from `pipelines/` or `scripts/` at repo-root.
+- **`scripts/check_skill_packaging.py`** — validator originally ported from `agent-pipeline-codex/scripts/check_skill_packaging.py`. **Deepened in v1.1.0** to scan every `*.md` file under each skill recursively (not just `SKILL.md`), with a discriminating regex that flags plugin-owned paths (`pipelines/`, `scripts/`) while skipping consumer-project paths (`docs/`, `tests/`, `CLAUDE.md`) and bundled-payload templates (paths inside `references/pipeline-payload/`). Catches the procedure-level wiring bugs that the original shallow scan missed.
+- **`tests/test_skill_packaging.py`** — pytest wrapper around the packaging check. Now part of the standard test gate (12 tests pass, was 11).
+- **Policy script `--version` strings bumped 1.0.0 → 1.1.0** in `auto_promote.py` and `check_manifest_schema.py` (both top-level and bundled copies under the pipeline payload). Confirms which release a `/pipeline-init`-scaffolded project came from.
 
 ### Verification evidence
 
