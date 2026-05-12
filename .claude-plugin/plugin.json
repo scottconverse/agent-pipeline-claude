@@ -1,7 +1,7 @@
 {
   "name": "agent-pipeline-claude",
-  "version": "0.5.2",
-  "description": "Multi-stage agentic pipeline runner for Claude Code projects. Orchestrates research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager. v0.2 adds the module-release pipeline. v0.3 adds the dual-AI audit-handoff discipline. v0.4 adds the judge layer — real-time action-level supervision inside the executor stage. v0.5 adds single-AI hardening: critic + drift-detector stages, pre-edit fact-forcing in the executor, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation — structural substitute for dual-AI cross-family verification when running with one AI.",
+  "version": "1.0.0",
+  "description": "Run multi-step Claude Code work without drift. Plugin reads your project's spec and drafts a per-run scope contract; you APPROVE in chat. Then research → plan → execute → verify → critique runs end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote. Cowork-first, one slash command (/run), no YAML for you to hand-author.",
   "author": {
     "name": "Scott Converse",
     "email": "sconverse@gmail.com"
@@ -17,6 +17,8 @@
     "pipeline",
     "orchestration",
     "multi-stage",
-    "human-in-the-loop"
+    "human-in-the-loop",
+    "cowork",
+    "claude-code"
   ]
 }
