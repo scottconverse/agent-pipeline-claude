@@ -1,706 +1,329 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>agent-pipeline-claude — structural discipline for agentic development</title>
-<meta name="description" content="A Claude Code plugin that orchestrates multi-stage agentic work through a manifest-driven pipeline. Human-approval gates where decisions actually live. Instrumented audit stages that catch the drift class which silently ships the wrong product.">
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;1,8..60,400&display=swap" rel="stylesheet">
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-pipeline-claude — multi-step Claude Code work without drift</title>
+<meta name="description" content="A Claude Code plugin that runs research → plan → execute → verify → critique end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote. One slash command. Drafted scope contracts from your project's spec.">
 <style>
+:root {
+  --fg: #181715;
+  --fg-muted: #4f4b46;
+  --fg-faint: #8a857c;
+  --bg: #f7f4ed;
+  --bg-card: #ffffff;
+  --accent: #1a3a8f;
+  --accent-fg: #ffffff;
+  --rust: #a14a1c;
+  --moss: #3d6438;
+  --border: #d8d2c4;
+  --code-bg: #ede8db;
+  --good: #2e7d32;
+  --warn: #c62828;
+}
+@media (prefers-color-scheme: dark) {
   :root {
-    --ink:        #0e0e0d;
-    --ink-soft:   #2a2a27;
-    --paper:      #f6f3eb;
-    --paper-warm: #efeadc;
-    --mid:        #6f6a60;
-    --mid-soft:   #8e8a80;
-    --hair:       #c7c2b5;
-    --hair-soft:  #ddd8cb;
-    --accent:     #1a3a8f;
-    --accent-deep:#0f2860;
-    --rust:       #a14a1c;
-    --moss:       #3d6438;
-
-    --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
-    --sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    --display: "Inter Tight", "Inter", -apple-system, sans-serif;
-    --mono:  "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
-
-    --max: 1180px;
+    --fg: #ece8df;
+    --fg-muted: #b5b0a3;
+    --fg-faint: #88847b;
+    --bg: #161512;
+    --bg-card: #1e1d19;
+    --accent: #6a8fd8;
+    --accent-fg: #161512;
+    --rust: #d18055;
+    --moss: #7eb178;
+    --border: #34312b;
+    --code-bg: #25231e;
+    --good: #82c98a;
+    --warn: #ef8989;
   }
-
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    margin: 0; background: var(--paper); color: var(--ink);
-    font-family: var(--sans); font-size: 16px; line-height: 1.6;
-    font-feature-settings: "ss01", "cv11";
-    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
-  }
-  a { color: inherit; text-decoration: underline; text-decoration-color: var(--hair); text-underline-offset: 3px; transition: text-decoration-color 120ms ease, color 120ms ease; }
-  a:hover { text-decoration-color: var(--accent); color: var(--accent); }
-  ::selection { background: var(--accent); color: var(--paper); }
-  code { font-family: var(--mono); }
-  .page { max-width: var(--max); margin: 0 auto; padding: 0 40px; }
-
-  .frame { position: relative; border-top: 1px solid var(--ink); }
-  .frame-mark, .frame-mark-right {
-    position: absolute; top: -1px;
-    font-family: var(--mono); font-size: 10px;
-    letter-spacing: 0.14em; text-transform: uppercase;
-    color: var(--mid); background: var(--paper);
-    transform: translateY(-50%);
-  }
-  .frame-mark { left: 40px; padding: 0 12px 0 0; }
-  .frame-mark-right { right: 40px; padding: 0 0 0 12px; }
-
-  .masthead {
-    padding: 28px 40px 24px; max-width: var(--max); margin: 0 auto;
-    display: flex; justify-content: space-between; align-items: baseline;
-    gap: 24px; border-bottom: 1px solid var(--hair);
-  }
-  .masthead .mark { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); }
-  .masthead .meta { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--mid); text-transform: uppercase; }
-  .masthead .meta span + span::before { content: "·"; margin: 0 10px; color: var(--hair); }
-
-  .hero { padding: 88px 0 100px; position: relative; }
-  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); gap: 64px; align-items: end; }
-  .hero-title {
-    font-family: var(--display); font-weight: 500;
-    font-size: clamp(48px, 7vw, 92px); line-height: 0.96;
-    letter-spacing: -0.035em; margin: 0 0 28px; color: var(--ink);
-  }
-  .hero-title em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--ink-soft); }
-  .hero-lede { font-family: var(--serif); font-size: 20px; line-height: 1.5; color: var(--ink-soft); max-width: 640px; margin: 0 0 36px; }
-  .hero-meta {
-    display: flex; flex-direction: column; gap: 14px;
-    padding-left: 32px; border-left: 1px solid var(--hair);
-    font-family: var(--mono); font-size: 11px; letter-spacing: 0.10em;
-    text-transform: uppercase; color: var(--mid); align-self: end;
-  }
-  .hero-meta .row { display: flex; justify-content: space-between; gap: 16px; }
-  .hero-meta .row strong { color: var(--ink); font-weight: 500; }
-  .hero-meta .rust { color: var(--rust); font-weight: 500; }
-
-  .runtime-tags { display: flex; gap: 8px; margin-bottom: 28px; flex-wrap: wrap; }
-  .runtime-tag {
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--mid);
-    padding: 5px 11px; border: 1px solid var(--hair); background: var(--paper);
-  }
-  .runtime-tag strong { color: var(--ink); font-weight: 500; }
-
-  .hero-cta { display: flex; gap: 0; margin-top: 8px; flex-wrap: wrap; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 10px;
-    padding: 14px 22px; font-family: var(--sans); font-size: 14px;
-    font-weight: 500; letter-spacing: 0.01em; text-decoration: none;
-    border: 1px solid var(--ink);
-    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-  }
-  .btn::after { content: "→"; font-family: var(--mono); font-weight: 400; transition: transform 200ms ease; }
-  .btn:hover::after { transform: translateX(4px); }
-  .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-  .btn.primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); text-decoration: none; color: var(--paper); }
-  .btn.ghost { background: transparent; color: var(--ink); border-left: none; }
-  .btn.ghost:hover { background: var(--paper-warm); text-decoration: none; color: var(--ink); }
-
-  .diagram-wrap { padding: 80px 0 100px; background: var(--paper); }
-  .figcap {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: 36px; margin-top: 56px; padding-bottom: 14px;
-    border-bottom: 1px solid var(--hair); gap: 24px; flex-wrap: wrap;
-  }
-  .figcap .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mid); }
-  .figcap .title { font-family: var(--display); font-size: 22px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink); }
-  .diagram { width: 100%; height: auto; display: block; overflow: visible; min-width: 900px; }
-  .diagram-scroll { overflow-x: auto; }
-
-  .legend {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 22px 40px; margin-top: 48px; padding-top: 28px;
-    border-top: 1px solid var(--hair);
-    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--mid);
-  }
-  .legend .item { display: flex; align-items: flex-start; gap: 12px; }
-  .legend .swatch {
-    flex: 0 0 auto; width: 22px; height: 22px;
-    border: 1px solid var(--ink); background: var(--paper); margin-top: 2px;
-  }
-  .legend .swatch.gate { background: var(--accent); border-color: var(--accent); }
-  .legend .swatch.policy { background: var(--ink); }
-  .legend .swatch.new { background: var(--paper); border-color: var(--moss); position: relative; }
-  .legend .swatch.new::after { content: ""; position: absolute; inset: 3px; border: 1px solid var(--moss); }
-  .legend .item .text { color: var(--mid); text-transform: uppercase; line-height: 1.6; }
-  .legend .item strong { display: block; color: var(--ink); font-weight: 500; letter-spacing: 0.14em; margin-bottom: 3px; }
-
-  section.editorial { padding: 90px 0; border-top: 1px solid var(--hair); }
-  .editorial-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 64px; align-items: start; }
-  .section-num { font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mid); line-height: 1.6; }
-  .section-num strong { display: block; color: var(--ink); font-weight: 500; margin-bottom: 6px; font-size: 12px; }
-  .section-body h2 { font-family: var(--display); font-size: 36px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.12; margin: 0 0 24px; max-width: 620px; color: var(--ink); }
-  .section-body p { font-family: var(--serif); font-size: 18px; line-height: 1.6; color: var(--ink-soft); max-width: 640px; margin: 0 0 18px; }
-  .section-body p.sans { font-family: var(--sans); font-size: 16px; line-height: 1.65; color: var(--ink-soft); }
-  .section-body code { font-family: var(--mono); font-size: 0.92em; background: var(--paper-warm); padding: 1px 6px; border-radius: 2px; }
-
-  .receipts { margin: 36px 0 0; border-top: 1px solid var(--hair); padding-top: 28px; }
-  .receipts ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 22px; }
-  .receipts li { display: grid; grid-template-columns: 28px 1fr; gap: 18px; padding-bottom: 22px; border-bottom: 1px solid var(--hair-soft); }
-  .receipts li:last-child { border-bottom: none; padding-bottom: 0; }
-  .receipts li .n { font-family: var(--mono); font-size: 11px; letter-spacing: 0.10em; color: var(--mid); padding-top: 4px; }
-  .receipts li .t { font-family: var(--serif); font-size: 17px; line-height: 1.5; color: var(--ink); }
-
-  .install {
-    margin-top: 14px; background: var(--ink); color: var(--paper);
-    padding: 28px 32px; font-family: var(--mono);
-    font-size: 13.5px; line-height: 1.85;
-    position: relative; overflow-x: auto;
-  }
-  .install pre { margin: 0; font: inherit; color: inherit; }
-  .install .prompt { color: var(--mid-soft); user-select: none; }
-  .install .comment { color: var(--mid-soft); font-style: italic; }
-  .install::before {
-    content: "shell"; position: absolute; top: -1px; right: 0;
-    transform: translateY(-100%); font-family: var(--mono);
-    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
-    color: var(--mid); padding: 6px 0;
-  }
-
-  .runtimes {
-    margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 0;
-    border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink);
-  }
-  .runtimes > div { padding: 28px 28px 28px 0; border-right: 1px solid var(--hair); }
-  .runtimes > div:last-child { padding: 28px 0 28px 28px; border-right: none; }
-  .runtimes h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; margin: 0 0 12px; font-weight: 500; color: var(--ink); }
-  .runtimes h4 .badge {
-    display: inline-block; font-size: 9px; letter-spacing: 0.18em;
-    color: var(--rust); border: 1px solid var(--rust);
-    padding: 2px 7px; margin-left: 10px; vertical-align: middle;
-  }
-  .runtimes p { font-family: var(--serif); font-size: 16px; line-height: 1.55; color: var(--ink-soft); margin: 0; }
-
-  .layers { display: grid; grid-template-columns: 1fr; gap: 0; margin-top: 12px; }
-  .layer { display: grid; grid-template-columns: 130px 1fr; gap: 32px; padding: 28px 0; border-top: 1px solid var(--hair); }
-  .layer:first-child { border-top: 1px solid var(--ink); }
-  .layer:last-child { border-bottom: 1px solid var(--hair); }
-  .layer .v { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--mid); text-transform: uppercase; padding-top: 4px; }
-  .layer .v strong {
-    display: block; font-family: var(--display); font-weight: 500;
-    font-size: 26px; letter-spacing: -0.02em; color: var(--ink);
-    margin-bottom: 4px; text-transform: none;
-  }
-  .layer.current .v strong { color: var(--rust); }
-  .layer.current .v .badge {
-    display: inline-block; margin-top: 6px; font-family: var(--mono);
-    font-size: 9px; letter-spacing: 0.2em; color: var(--rust);
-    border: 1px solid var(--rust); padding: 3px 8px;
-  }
-  .layer .l-title { font-family: var(--display); font-size: 19px; font-weight: 500; color: var(--ink); margin: 0 0 8px; letter-spacing: -0.01em; }
-  .layer .l-body { font-family: var(--serif); font-size: 16px; line-height: 1.55; color: var(--ink-soft); margin: 0 0 10px; max-width: 620px; }
-  .layer .l-catches { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--mid); text-transform: none; }
-  .layer .l-catches strong { color: var(--ink); text-transform: uppercase; letter-spacing: 0.14em; margin-right: 8px; }
-
-  .not-list { list-style: none; padding: 0; margin: 28px 0 0; }
-  .not-list li {
-    font-family: var(--serif); font-size: 18px; line-height: 1.5;
-    color: var(--ink-soft); padding: 16px 0;
-    border-top: 1px solid var(--hair);
-    display: grid; grid-template-columns: 32px 1fr; gap: 16px; align-items: baseline;
-  }
-  .not-list li::before { content: "—"; font-family: var(--mono); color: var(--mid); font-size: 14px; }
-  .not-list li:last-child { border-bottom: 1px solid var(--hair); }
-
-  .lessons { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 28px; margin-top: 28px; }
-  .lesson .lh { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
-  .lesson .lb { font-family: var(--serif); font-size: 16px; line-height: 1.5; color: var(--ink-soft); }
-
-  .colophon {
-    padding: 64px 0 32px; border-top: 1px solid var(--ink);
-    margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px;
-  }
-  .colophon .col h4 { font-family: var(--mono); font-size: 10px; letter-spacing: 0.20em; text-transform: uppercase; color: var(--mid); margin: 0 0 14px; font-weight: 500; }
-  .colophon .col p, .colophon .col a { font-family: var(--sans); font-size: 14px; line-height: 1.65; color: var(--ink-soft); margin: 0 0 6px; display: block; }
-  .colophon .col a:hover { color: var(--accent); }
-
-  footer.foot {
-    padding: 32px 0 56px; font-family: var(--mono);
-    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
-    color: var(--mid); display: flex; justify-content: space-between;
-    align-items: baseline; flex-wrap: wrap; gap: 16px;
-    border-top: 1px solid var(--hair);
-  }
-  footer.foot a { color: var(--mid); text-decoration-color: transparent; }
-  footer.foot a:hover { color: var(--accent); text-decoration-color: var(--accent); }
-
-  @media (max-width: 920px) {
-    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
-    .hero-meta { padding-left: 0; border-left: none; border-top: 1px solid var(--hair); padding-top: 24px; }
-    .editorial-grid { grid-template-columns: 1fr; gap: 24px; }
-    .colophon { grid-template-columns: 1fr; gap: 28px; }
-    .section-body h2 { font-size: 30px; }
-    .layer { grid-template-columns: 1fr; gap: 12px; }
-    .runtimes { grid-template-columns: 1fr; }
-    .runtimes > div { padding: 24px 0; border-right: none; border-top: 1px solid var(--hair); }
-    .runtimes > div:first-child { border-top: none; padding-top: 0; }
-    .runtimes > div:last-child { padding: 24px 0 0; }
-  }
-  @media (max-width: 600px) {
-    .page { padding: 0 24px; }
-    .masthead { padding: 20px 24px; flex-direction: column; align-items: flex-start; gap: 8px; }
-    .hero { padding: 56px 0 64px; }
-    .hero-title { font-size: 44px; }
-    .hero-lede { font-size: 17px; }
-    .frame-mark, .frame-mark-right { left: 24px; right: 24px; }
-    .install { padding: 22px 20px; font-size: 12px; }
-  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+header { padding: 64px 0 36px; border-bottom: 1px solid var(--border); }
+header .eyebrow {
+  font-size: 13px; color: var(--fg-faint);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 14px;
+}
+header h1 {
+  font-size: 40px; line-height: 1.12;
+  margin: 0 0 14px; font-weight: 700; letter-spacing: -0.02em;
+}
+header .tagline {
+  font-size: 18px; color: var(--fg-muted); margin: 0 0 24px; max-width: 680px;
+}
+.badges {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 20px;
+}
+.badge {
+  font-size: 12px; font-weight: 600;
+  padding: 4px 10px; border-radius: 12px;
+  border: 1px solid var(--border); color: var(--fg-muted);
+}
+.badge.version { color: var(--accent); border-color: var(--accent); }
+.badge.tests { color: var(--good); border-color: var(--good); }
+.cta-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn {
+  display: inline-block; padding: 10px 18px;
+  font-size: 14px; font-weight: 600; text-decoration: none;
+  border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--fg);
+  transition: transform 0.08s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+section { padding: 44px 0; border-bottom: 1px solid var(--border); }
+section:last-of-type { border-bottom: none; }
+h2 { font-size: 26px; margin: 0 0 18px; font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 18px; margin: 28px 0 8px; font-weight: 600; }
+p { margin: 0 0 14px; }
+p.lead { font-size: 17px; color: var(--fg-muted); max-width: 680px; }
+ul, ol { margin: 0 0 14px; padding-left: 22px; }
+li { margin-bottom: 6px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre {
+  font-family: "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 13.5px;
+}
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 3px; }
+pre {
+  background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+  overflow-x: auto; line-height: 1.5; border: 1px solid var(--border);
+}
+pre code { background: none; padding: 0; }
+.matrix {
+  width: 100%; border-collapse: collapse; margin: 12px 0;
+  font-size: 14px;
+}
+.matrix th, .matrix td {
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.matrix th { background: var(--bg-card); font-weight: 600; }
+.matrix td.yes { color: var(--good); font-weight: 600; }
+.matrix td.no  { color: var(--warn); font-weight: 600; }
+.matrix td.faint { color: var(--fg-faint); font-style: italic; }
+.matrix td.cost { color: var(--rust); font-family: "SF Mono", Consolas, monospace; font-size: 13px; }
+.stage-flow {
+  font-family: "SF Mono", Consolas, monospace;
+  font-size: 14px;
+  padding: 18px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 16px 0;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.5;
+}
+.note {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 14px 16px;
+  border-radius: 4px;
+  margin: 16px 0;
+  font-size: 14.5px;
+  color: var(--fg-muted);
+}
+.note strong { color: var(--fg); }
+.gate-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px 18px;
+  margin: 12px 0;
+}
+.gate-card strong { color: var(--accent); }
+footer {
+  padding: 40px 0 80px; font-size: 13.5px;
+  color: var(--fg-faint); text-align: center;
+}
+footer a { color: var(--fg-muted); }
+.kbd {
+  display: inline-block; padding: 1px 6px;
+  font-size: 12px; border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 3px;
+  background: var(--bg-card); color: var(--fg);
+}
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<header class="masthead">
-  <div class="mark">agent-pipeline-claude</div>
-  <div class="meta">
-    <span>v1.0.0</span>
-    <span>Apache-2.0</span>
-    <span>Claude Code plugin</span>
+<header>
+  <div class="eyebrow">Claude Code plugin · v1.1.0</div>
+  <h1>Multi-step Claude Code work without drift.</h1>
+  <p class="tagline">One slash command. Drafted scope contracts from your project's spec. Research → plan → execute → verify → critique runs end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote.</p>
+  <div class="badges">
+    <span class="badge version">v1.1.0</span>
+    <span class="badge tests">15/15 tests passing</span>
+    <span class="badge">cleanroom-verified</span>
+    <span class="badge">Apache-2.0</span>
+  </div>
+  <div class="cta-row">
+    <a class="btn primary" href="https://github.com/scottconverse/agent-pipeline-claude">View on GitHub</a>
+    <a class="btn" href="#install">Install</a>
+    <a class="btn" href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">User manual</a>
+    <a class="btn" href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/ARCHITECTURE.md">Architecture</a>
+    <a class="btn" href="https://github.com/scottconverse/agent-pipeline-claude/discussions">Discuss</a>
   </div>
 </header>
 
-<main class="page">
-
-<section class="hero">
-  <div class="hero-grid">
-    <div>
-      <div class="runtime-tags">
-        <div class="runtime-tag"><strong>Claude Code</strong></div>
-        <div class="runtime-tag">Apache-2.0</div>
-        <div class="runtime-tag">v1.0.0</div>
-      </div>
-      <h1 class="hero-title">
-        Structural<br>
-        discipline<br>
-        for <em>agentic</em><br>
-        development.
-      </h1>
-      <p class="hero-lede">
-        A Claude Code plugin that orchestrates multi-stage agentic work
-        through a manifest-driven pipeline. Human-approval gates where
-        decisions actually live. Instrumented audit stages that catch the
-        drift class which silently ships the wrong product.
-      </p>
-      <div class="hero-cta">
-        <a class="btn primary" href="https://github.com/scottconverse/agent-pipeline-claude">View on GitHub</a>
-        <a class="btn ghost" href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">Read the manual</a>
-      </div>
-    </div>
-
-    <aside class="hero-meta">
-      <div class="row"><span>Release</span><strong class="rust">1.0.0</strong></div>
-      <div class="row"><span>Slash command</span><strong>/run</strong></div>
-      <div class="row"><span>Stages</span><strong>11</strong></div>
-      <div class="row"><span>Human gates</span><strong>3</strong></div>
-      <div class="row"><span>Role files</span><strong>14</strong></div>
-      <div class="row"><span>Policy checks</span><strong>6</strong></div>
-      <div class="row"><span>Pipelines</span><strong>3</strong></div>
-      <div class="row"><span>Status</span><strong>stable</strong></div>
-    </aside>
-  </div>
+<section>
+  <h2>The problem</h2>
+  <p class="lead">Multi-step agentic work drifts. The assistant runs a plan, then in the middle of step 4 it reinterprets the goal, edits files it wasn't supposed to touch, and the user discovers what it actually did only after the damage is done.</p>
+  <p>The usual responses don't work. A second AI auditing the first AI gets caught in the same drift. A more careful single-AI loop just papers over the drift class. A long human checklist is unenforceable; people skim.</p>
+  <p>This plugin enforces a structural pattern. Every run starts with a manifest you approve in chat. Stages are spawned as Agent sub-tasks with bounded role files. The drift-detector reads the actual diff and flags every file change outside the manifest. The critic runs as a separate Agent so it can't co-conspire. Auto-promote is six machine-checkable conditions; manager-merge runs only when those pass.</p>
 </section>
 
-<section class="diagram-wrap frame">
-  <span class="frame-mark">Fig. 01 · Pipeline schematic</span>
-  <span class="frame-mark-right">v1.0.0 · feature.yaml</span>
-
-  <div class="figcap">
-    <span class="label">Eleven stages · four phases · three gates</span>
-    <span class="title">A run, end to end.</span>
-  </div>
-
-  <div class="diagram-scroll">
-  <svg class="diagram" viewBox="0 0 1400 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-pipeline-claude schematic: eleven stages organized into four phases with three human-approval gates">
-    <defs>
-      <style>
-        .ink { fill: #0e0e0d; }
-        .paper { fill: #f6f3eb; }
-        .accent { fill: #1a3a8f; }
-        .moss { fill: #3d6438; }
-        .mid { fill: #6f6a60; }
-        .hair-stroke { stroke: #c7c2b5; stroke-width: 0.5; fill: none; }
-        .ink-stroke { stroke: #0e0e0d; stroke-width: 0.75; fill: none; }
-        .accent-stroke { stroke: #1a3a8f; stroke-width: 1; fill: none; }
-        .lbl { font-family: "IBM Plex Mono", monospace; font-size: 9px; fill: #0e0e0d; letter-spacing: 0.12em; text-transform: uppercase; }
-        .lbl-mid { font-family: "IBM Plex Mono", monospace; font-size: 9px; fill: #6f6a60; letter-spacing: 0.10em; }
-        .num { font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 500; fill: #0e0e0d; }
-        .num-i { font-family: "Source Serif 4", serif; font-style: italic; font-size: 11px; fill: #6f6a60; }
-        .phase { font-family: "IBM Plex Mono", monospace; font-size: 10px; fill: #0e0e0d; letter-spacing: 0.22em; text-transform: uppercase; }
-        .gate-lbl { font-family: "IBM Plex Mono", monospace; font-size: 8.5px; fill: #1a3a8f; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 500; }
-      </style>
-    </defs>
-
-    <text class="num-i" x="80" y="44">I</text>
-    <line class="ink-stroke" x1="92" y1="40" x2="372" y2="40"/>
-    <line class="ink-stroke" x1="92" y1="40" x2="92" y2="48"/>
-    <line class="ink-stroke" x1="372" y1="40" x2="372" y2="48"/>
-    <text class="phase" x="230" y="64" text-anchor="middle">Contract</text>
-
-    <text class="num-i" x="470" y="44">II</text>
-    <line class="ink-stroke" x1="486" y1="40" x2="610" y2="40"/>
-    <line class="ink-stroke" x1="486" y1="40" x2="486" y2="48"/>
-    <line class="ink-stroke" x1="610" y1="40" x2="610" y2="48"/>
-    <text class="phase" x="548" y="64" text-anchor="middle">Build</text>
-
-    <text class="num-i" x="710" y="44">III</text>
-    <line class="ink-stroke" x1="730" y1="40" x2="1218" y2="40"/>
-    <line class="ink-stroke" x1="730" y1="40" x2="730" y2="48"/>
-    <line class="ink-stroke" x1="1218" y1="40" x2="1218" y2="48"/>
-    <text class="phase" x="974" y="64" text-anchor="middle">Audit</text>
-
-    <text class="num-i" x="1290" y="44">IV</text>
-    <line class="ink-stroke" x1="1306" y1="40" x2="1340" y2="40"/>
-    <line class="ink-stroke" x1="1306" y1="40" x2="1306" y2="48"/>
-    <line class="ink-stroke" x1="1340" y1="40" x2="1340" y2="48"/>
-    <text class="phase" x="1323" y="64" text-anchor="middle">Decide</text>
-
-    <line class="ink-stroke" x1="50" y1="180" x2="1370" y2="180"/>
-    <line class="ink-stroke" x1="50" y1="174" x2="50" y2="186"/>
-    <line class="ink-stroke" x1="1370" y1="174" x2="1370" y2="186"/>
-
-    <line class="hair-stroke" x1="426" y1="86" x2="426" y2="280" stroke-dasharray="2 4"/>
-    <line class="hair-stroke" x1="666" y1="86" x2="666" y2="280" stroke-dasharray="2 4"/>
-    <line class="hair-stroke" x1="1266" y1="86" x2="1266" y2="280" stroke-dasharray="2 4"/>
-
-    <g>
-      <line class="accent-stroke" x1="92" y1="180" x2="92" y2="110"/>
-      <polygon class="accent" points="92,100 86,112 98,112"/>
-      <text class="gate-lbl" x="92" y="92" text-anchor="middle">Gate</text>
-      <circle class="paper" cx="92" cy="180" r="19" stroke="#1a3a8f" stroke-width="1.5"/>
-      <text class="num" x="92" y="184" text-anchor="middle">01</text>
-      <text class="lbl" x="92" y="220" text-anchor="middle">Manifest</text>
-      <text class="lbl-mid" x="92" y="234" text-anchor="middle">contract</text>
-    </g>
-
-    <g>
-      <circle class="paper" cx="232" cy="180" r="19" stroke="#0e0e0d" stroke-width="0.75"/>
-      <text class="num" x="232" y="184" text-anchor="middle">02</text>
-      <text class="lbl" x="232" y="220" text-anchor="middle">Research</text>
-      <text class="lbl-mid" x="232" y="234" text-anchor="middle">researcher</text>
-    </g>
-
-    <g>
-      <line class="accent-stroke" x1="372" y1="180" x2="372" y2="110"/>
-      <polygon class="accent" points="372,100 366,112 378,112"/>
-      <text class="gate-lbl" x="372" y="92" text-anchor="middle">Gate</text>
-      <circle class="paper" cx="372" cy="180" r="19" stroke="#1a3a8f" stroke-width="1.5"/>
-      <text class="num" x="372" y="184" text-anchor="middle">03</text>
-      <text class="lbl" x="372" y="220" text-anchor="middle">Plan</text>
-      <text class="lbl-mid" x="372" y="234" text-anchor="middle">planner</text>
-    </g>
-
-    <g>
-      <circle class="paper" cx="486" cy="180" r="19" stroke="#0e0e0d" stroke-width="0.75"/>
-      <text class="num" x="486" y="184" text-anchor="middle">04</text>
-      <text class="lbl" x="486" y="220" text-anchor="middle">Test-write</text>
-      <text class="lbl-mid" x="486" y="234" text-anchor="middle">test-writer</text>
-    </g>
-
-    <g>
-      <circle class="paper" cx="610" cy="180" r="19" stroke="#0e0e0d" stroke-width="0.75"/>
-      <text class="num" x="610" y="184" text-anchor="middle">05</text>
-      <text class="lbl" x="610" y="220" text-anchor="middle">Execute</text>
-      <text class="lbl-mid" x="610" y="234" text-anchor="middle">executor</text>
-    </g>
-
-    <g>
-      <circle class="ink" cx="730" cy="180" r="19"/>
-      <text class="num" x="730" y="184" text-anchor="middle" fill="#f6f3eb">06</text>
-      <text class="lbl" x="730" y="220" text-anchor="middle">Policy</text>
-      <text class="lbl-mid" x="730" y="234" text-anchor="middle">automated</text>
-    </g>
-
-    <g>
-      <circle class="paper" cx="852" cy="180" r="19" stroke="#0e0e0d" stroke-width="0.75"/>
-      <text class="num" x="852" y="184" text-anchor="middle">07</text>
-      <text class="lbl" x="852" y="220" text-anchor="middle">Verify</text>
-      <text class="lbl-mid" x="852" y="234" text-anchor="middle">verifier</text>
-    </g>
-
-    <g>
-      <circle class="paper" cx="974" cy="180" r="19" stroke="#3d6438" stroke-width="1.25"/>
-      <circle cx="974" cy="180" r="15" fill="none" stroke="#3d6438" stroke-width="0.5"/>
-      <text class="num" x="974" y="184" text-anchor="middle">08</text>
-      <text class="lbl" x="974" y="220" text-anchor="middle">Drift-detect</text>
-      <text class="lbl-mid" x="974" y="234" text-anchor="middle">v0.5</text>
-    </g>
-
-    <g>
-      <circle class="paper" cx="1096" cy="180" r="19" stroke="#3d6438" stroke-width="1.25"/>
-      <circle cx="1096" cy="180" r="15" fill="none" stroke="#3d6438" stroke-width="0.5"/>
-      <text class="num" x="1096" y="184" text-anchor="middle">09</text>
-      <text class="lbl" x="1096" y="220" text-anchor="middle">Critique</text>
-      <text class="lbl-mid" x="1096" y="234" text-anchor="middle">v0.5</text>
-    </g>
-
-    <g>
-      <circle class="ink" cx="1218" cy="180" r="19"/>
-      <circle cx="1218" cy="180" r="15" fill="none" stroke="#3d6438" stroke-width="0.75"/>
-      <text class="num" x="1218" y="184" text-anchor="middle" fill="#f6f3eb">10</text>
-      <text class="lbl" x="1218" y="220" text-anchor="middle">Auto-promote</text>
-      <text class="lbl-mid" x="1218" y="234" text-anchor="middle">v0.5</text>
-    </g>
-
-    <g>
-      <line class="accent-stroke" x1="1326" y1="180" x2="1326" y2="110"/>
-      <polygon class="accent" points="1326,100 1320,112 1332,112"/>
-      <text class="gate-lbl" x="1326" y="92" text-anchor="middle">Gate*</text>
-      <circle class="paper" cx="1326" cy="180" r="19" stroke="#1a3a8f" stroke-width="1.5"/>
-      <text class="num" x="1326" y="184" text-anchor="middle">11</text>
-      <text class="lbl" x="1326" y="220" text-anchor="middle">Manager</text>
-      <text class="lbl-mid" x="1326" y="234" text-anchor="middle">manager</text>
-    </g>
-
-    <line class="hair-stroke" x1="50" y1="296" x2="1370" y2="296"/>
-    <text class="lbl-mid" x="50" y="316">* On clean runs at v0.5, the manager gate auto-fires when the six structural conditions are met. Auto-promote reads parseable count lines from §verify, §critique, §drift, §policy, §judge, §implementation.</text>
-    <text class="lbl-mid" x="50" y="336">Stage names mirror <tspan font-style="italic" font-family="Source Serif 4">pipelines/feature.yaml</tspan>. Role briefs live under <tspan font-style="italic" font-family="Source Serif 4">pipelines/roles/&lt;role&gt;.md</tspan>.</text>
-  </svg>
-  </div>
-
-  <div class="legend">
-    <div class="item">
-      <span class="swatch"></span>
-      <div class="text"><strong>Agent stage</strong>Isolated subagent. Role brief plus manifest and prior artifacts. Writes one artifact, exits.</div>
-    </div>
-    <div class="item">
-      <span class="swatch policy"></span>
-      <div class="text"><strong>Automated</strong>Deterministic check. Exit 0 advances; non-zero halts.</div>
-    </div>
-    <div class="item">
-      <span class="swatch gate"></span>
-      <div class="text"><strong>Human gate</strong>Explicit APPROVE or describe what should change. No autonomous-mode-by-stealth.</div>
-    </div>
-    <div class="item">
-      <span class="swatch new"></span>
-      <div class="text"><strong>New at v1.0</strong>Manifest drafted from your project spec. One slash command (/run). Chat-native gates.</div>
-    </div>
-  </div>
+<section id="what-it-does">
+  <h2>What a run looks like</h2>
+  <p>You type one slash command. The plugin reads your project's spec, drafts a scope contract from it, and shows you YAML in chat.</p>
+  <pre><code>/agent-pipeline-claude:run "close QA-005 conflict-409 race"</code></pre>
+  <div class="stage-flow">manifest-drafter  →  [gate 1: chat APPROVE]
+researcher        →  research.md
+planner           →  plan.md           →  [gate 2: chat APPROVE]
+test-writer       →  failing-tests-report.md
+executor          →  implementation-report.md
+policy            →  policy-report.md  (4 stdlib-only checks)
+verifier          →  verifier-report.md
+drift-detector    →  drift-report.md
+critic            →  critic-report.md
+auto-promote      →  auto-promote-report.md  (6 conditions)
+manager           →  manager-decision.md     →  [gate 3: chat APPROVE]</div>
+  <p>Every stage writes an artifact to <code>.agent-runs/&lt;run-id&gt;/</code>. The run is resumable from any failed stage via <code>/agent-pipeline-claude:run resume &lt;run-id&gt;</code>. The judge layer (opt-in) sits between stages and supervises every external-facing or high-risk action against the manifest. The drift-detector catches edits to files outside <code>allowed_paths</code>. The critic runs as a separate Agent and can't co-conspire with the executor.</p>
 </section>
 
-<section class="editorial">
-  <div class="editorial-grid">
-    <div class="section-num"><strong>§ 01</strong>Why this<br>exists</div>
-    <div class="section-body">
-      <h2>Agentic work fails in predictable ways.</h2>
-      <p>
-        The agent improvises past the spec. It claims tests pass without
-        running them on a fresh dependency set. It merges in-flight work
-        while a scope question is still open. It picks architectural
-        decisions silently rather than surfacing them for review.
-      </p>
-      <p>
-        agent-pipeline-claude enforces a structural pattern that catches every
-        one of those — not by hoping the agent is well-behaved, but by
-        making the well-behaved path the only path. Every stage produces
-        a durable artifact under <code>.agent-runs/&lt;run-id&gt;/</code>;
-        every gate produces a one-question prompt that cannot be bypassed.
-      </p>
-
-      <div class="receipts">
-        <ul>
-          <li><span class="n">i</span><span class="t">Manifest gate — every run begins with a human-approved contract naming goal, allowed paths, forbidden paths, non-goals, expected outputs, and definition-of-done. Fuzzy manifests fail strict schema validation at the gate, before they cascade.</span></li>
-          <li><span class="n">ii</span><span class="t">Director-decisions — the researcher surfaces open questions; the human picks; choices are recorded as binding constraints before the planner runs. Architectural decisions never happen in chat.</span></li>
-          <li><span class="n">iii</span><span class="t">Standing invariants — the cumulative-drift gap that lets feature-scoped manifests silently ship stale top-of-file content is closed by doc-currency invariants the drift-detector checks on every run.</span></li>
-        </ul>
-      </div>
-    </div>
+<section>
+  <h2>Three human gates, in chat</h2>
+  <div class="gate-card">
+    <strong>Gate 1 — Manifest approval.</strong> The drafter reads your project's spec / release plan / scope-lock / design notes and produces a YAML manifest with every field annotated by source. You reply <code>APPROVE</code> to lock the scope contract, or describe what to change.
   </div>
+  <div class="gate-card">
+    <strong>Gate 2 — Plan approval.</strong> After research, the planner produces a step-numbered plan with blast radius. You reply <code>APPROVE</code> to execute, <code>REPLAN &lt;description&gt;</code> to revise.
+  </div>
+  <div class="gate-card">
+    <strong>Gate 3 — Manager approval.</strong> After verify/drift/critic/auto-promote complete, the manager produces a structured decision document. You reply <code>APPROVE</code> to merge, <code>REPLAN</code> to send back for another loop, or <code>BLOCK</code> to halt.
+  </div>
+  <p>Gates are chat messages, not modal popups. They survive across sessions; you can resume any run from its last gate.</p>
 </section>
 
-<section class="editorial">
-  <div class="editorial-grid">
-    <div class="section-num"><strong>§ 02</strong>Install in<br>thirty seconds</div>
-    <div class="section-body">
-      <h2>One command. Then orient. Then run.</h2>
-      <p class="sans">
-        Install once across all projects. From any project root — empty
-        directory, fresh clone, or a working repo — run
-        <code>/pipeline-init</code>. It asks one question (PRD path, repo
-        URL, or description paragraph), produces a project-orientation
-        summary, and scaffolds <code>.pipelines/</code>,
-        <code>scripts/policy/</code>, and a starter <code>CLAUDE.md</code>
-        if one is not present.
-      </p>
-
-      <div class="install"><pre><span class="comment"># Install once, across all Claude Code projects</span>
-<span class="comment"># Cowork users: paste the bootstrap prompt from README.md § Install</span>
-<span class="comment"># CLI users (if /plugin available):</span>
-<span class="prompt">›</span> /plugin install scottconverse/agent-pipeline-claude
-
-<span class="comment"># Restart your session so the new slash commands register.</span>
-<span class="comment"># Then in any project root:</span>
-<span class="prompt">›</span> /pipeline-init
-<span class="prompt">›</span> /run <span style="color:#8e8a80;">&quot;short description of your work&quot;</span>
-<span class="comment">›  ... the drafter reads your spec and shows a manifest in chat ...</span>
-<span class="comment">›  ... reply APPROVE; the pipeline runs end-to-end ...</span></pre></div>
-
-      <div class="runtimes">
-        <div>
-          <h4>Slash commands</h4>
-          <p>Two commands cover the full surface in v1.0: <code>/pipeline-init</code> onboards a project, <code>/run</code> drafts the manifest from your spec, presents it in chat, and orchestrates the eleven stages with resume-from-log. <code>/audit-init</code> scaffolds the v0.3 dual-AI audit-handoff discipline. The v0.5.x two-step <code>/new-run</code> + <code>/run-pipeline</code> survives in v1.0 as deprecated shims and will be removed at v1.1.</p>
-        </div>
-        <div>
-          <h4>Subagent isolation</h4>
-          <p>Each agent stage runs as an isolated Claude subagent with no parent-conversation memory. The orchestrator passes a role file plus run context as the entire prompt. The judge layer (v0.4 opt-in) intercepts proposed executor tool calls and routes high-risk actions through a context-isolated judge subagent before they execute.</p>
-        </div>
-      </div>
-    </div>
-  </div>
+<section id="install">
+  <h2>Install</h2>
+  <p>Two paths into the Cowork desktop app:</p>
+  <h3>Plugin manager</h3>
+  <pre><code>/plugin marketplace add scottconverse/agent-pipeline-claude
+/plugin install agent-pipeline-claude@agent-pipeline-claude</code></pre>
+  <p>Then restart your Cowork session. <code>/agent-pipeline-claude:pipeline-init</code>, <code>/agent-pipeline-claude:run</code>, and <code>/agent-pipeline-claude:audit-init</code> appear in the <span class="kbd">/</span> palette.</p>
+  <h3>Local marketplace (when <code>/plugin install</code> isn't available)</h3>
+  <pre><code>git clone https://github.com/scottconverse/agent-pipeline-claude.git \
+  ~/.claude/plugins/marketplaces/agent-pipeline-claude
+/plugin marketplace add ~/.claude/plugins/marketplaces/agent-pipeline-claude
+/plugin install agent-pipeline-claude@agent-pipeline-claude</code></pre>
+  <p>Full install and first-use guide: <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">USER-MANUAL.md</a>.</p>
 </section>
 
-<section class="editorial">
-  <div class="editorial-grid">
-    <div class="section-num"><strong>§ 03</strong>Release<br>history</div>
-    <div class="section-body">
-      <h2>Each minor release adds a layer the previous version did not catch.</h2>
-      <p class="sans" style="margin-bottom: 8px;">
-        The layers stack. Every version's failure-mode coverage is
-        preserved on upgrade.
-      </p>
-
-      <div class="layers">
-        <div class="layer">
-          <div class="v">v0.2<strong>Module-release</strong></div>
-          <div>
-            <div class="l-title">Six-phase release pipeline.</div>
-            <p class="l-body">Phase 0 audits the release workflow before any product code is touched. Phase 2 rehearses the release sequence locally on fresh state. The CI workflow becomes the execution mechanism, not the discovery mechanism.</p>
-            <div class="l-catches"><strong>Catches</strong> Execution-cascade failures — pre-existing CI bugs, tag-move dances, halt-and-ask loops.</div>
-          </div>
-        </div>
-
-        <div class="layer">
-          <div class="v">v0.3<strong>Audit-handoff</strong></div>
-          <div>
-            <div class="l-title">Dual-AI discipline.</div>
-            <p class="l-body"><code>/audit-init</code> scaffolds the three-artifact discipline for projects where one AI implements and another audits. Implementer runs a hostile 5-lens self-audit before push; auditor runs a 10-section verification protocol; both share an in-repo drift-patterns catalog that grows over time.</p>
-            <div class="l-catches"><strong>Catches</strong> Drift failures — wrong endpoint, stale CHANGELOG, "Closed" without evidence, status-word abuse.</div>
-          </div>
-        </div>
-
-        <div class="layer">
-          <div class="v">v0.4<strong>Judge layer</strong></div>
-          <div>
-            <div class="l-title">Real-time action supervision.</div>
-            <p class="l-body">Opt-in. Every executor tool call is classified by risk (<code>read_only</code> / <code>reversible_write</code> / <code>external_facing</code> / <code>high_risk</code>). Dangerous actions route to a context-isolated judge subagent with four verdicts — <em>allow, block, revise, escalate</em>.</p>
-            <div class="l-catches"><strong>Catches</strong> Unauthorized actions in real time — destructive commands, external writes, force pushes, credential-touching operations.</div>
-          </div>
-        </div>
-
-        <div class="layer">
-          <div class="v">v0.5<strong>Single-AI hardened</strong></div>
-          <div>
-            <div class="l-title">Three new stages, one structural backstop.</div>
-            <p class="l-body">Critic reads every artifact adversarially in fresh context. Drift-detector compares manifest contract to assembled state and, at v0.5.1, enforces standing doc-currency invariants regardless of manifest scope. Auto-promote scores six structural conditions and collapses the manager gate when clean. Pre-edit fact-forcing in the executor catches blast-radius surprises before they hit the verifier.</p>
-            <div class="l-catches"><strong>Catches</strong> The drift class without needing a second AI — durable doc drift, cross-file inconsistency, version strings out of sync, status-word abuse.</div>
-          </div>
-        </div>
-
-        <div class="layer">
-          <div class="v">v0.5.2<strong>Rename + scope</strong></div>
-          <div>
-            <div class="l-title">Plugin renamed to <code>agent-pipeline-claude</code>. Claude Code only.</div>
-            <p class="l-body">The plugin is now scoped specifically to Claude Code. The structural surface — commands, role files, policy scripts, pipeline definitions, run-state convention — is unchanged from v0.5.1. The dual-AI audit-handoff discipline (v0.3) still pairs Claude with any second AI; the second AI now lives in its own downstream repo rather than entangled with this one.</p>
-            <div class="l-catches"><strong>Removes</strong> Cross-runtime entanglement. Each runtime can now ship on its own cadence.</div>
-          </div>
-        </div>
-
-        <div class="layer current">
-          <div class="v">v1.0<strong>UX rewrite</strong><span class="badge">Current</span></div>
-          <div>
-            <div class="l-title">One slash command, drafted manifest, chat-native gates.</div>
-            <p class="l-body">v1.0 keeps every v0.5 hardening guarantee and rebuilds the surface around four load-bearing decisions. <strong>Cowork-first install</strong> — the paste-able bootstrap prompt handles environments without <code>/plugin install</code>. <strong>Spec-aware drafting</strong> — the manifest-drafter walks your project's spec, release-plan, scope-lock, design-notes, ADRs, CLAUDE.md, and ledgers, then auto-derives 9 of 11 manifest fields. <strong>One command</strong> — <code>/run</code> replaces <code>/new-run</code> + <code>/run-pipeline</code>. <strong>Chat-native gates</strong> — APPROVE / REPLAN / BLOCK in chat, not modal popups.</p>
-            <div class="l-catches"><strong>Catches</strong> The "blank YAML I have to fill in" failure mode. The "I don't have <code>/plugin install</code>" failure mode. The "wait, which slash command was it again" failure mode.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+<section>
+  <h2>First use</h2>
+  <p>Drop into your project root and run:</p>
+  <pre><code>/agent-pipeline-claude:pipeline-init</code></pre>
+  <p>The plugin scans for your spec, release plan, scope-lock, design notes, CLAUDE.md, and HANDOFF.md. It scaffolds <code>.pipelines/</code> (14 role files, 5 pipeline definitions, 3 templates) and <code>scripts/policy/</code> (6 stdlib-only validation scripts) into your project. Then:</p>
+  <pre><code>/agent-pipeline-claude:run "your task description"</code></pre>
+  <p>The manifest-drafter runs. You approve in chat. The pipeline executes end-to-end.</p>
 </section>
 
-<section class="editorial">
-  <div class="editorial-grid">
-    <div class="section-num"><strong>§ 04</strong>Negative<br>space</div>
-    <div class="section-body">
-      <h2>What the plugin will not do — by construction.</h2>
-      <p class="sans">
-        The contract is enforced as much by what is forbidden as by what
-        is required. The hard rules below are baked into the role files,
-        the policy stage, and the orchestrator. They are not toggles.
-      </p>
-      <ul class="not-list">
-        <li>Propose autonomous mode. Every gate is explicit.</li>
-        <li>Silently expand scope. The policy stage blocks every change outside <code>allowed_paths</code>.</li>
-        <li>Skip tests. <em>Never skip tests</em> is enforced as a project-level hard rule.</li>
-        <li>Promote a run if the verifier marked any criterion <code>NOT MET</code>.</li>
-        <li>Merge in-flight work while a halt is active — including cleanup PRs that "seem obviously safe."</li>
-      </ul>
-    </div>
-  </div>
+<section>
+  <h2>Verified — five testing tiers</h2>
+  <p>v1.0.0 and v1.0.1 of this plugin <em>shipped without actually loading</em>. Manifest schema violations passed unit tests in isolation but the loader silently rejected the install. The v1.0.2 fix made it load; v1.1.0 closed the gap with a cleanroom layer that exercises the actual install path on every commit.</p>
+  <table class="matrix">
+    <thead>
+      <tr><th>Tier</th><th>What it proves</th><th>Runtime</th><th>API spend</th><th>When</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Static</strong></td><td>Manifests well-formed; shell/Python syntax OK</td><td>ms</td><td class="cost">$0</td><td>per commit</td></tr>
+      <tr><td><strong>Unit</strong></td><td>Policy scripts behave correctly on synthetic input</td><td>seconds</td><td class="cost">$0</td><td>per commit</td></tr>
+      <tr><td><strong>Smoke</strong></td><td>Plugin's skills self-contained in installed-cache shape</td><td>seconds</td><td class="cost">$0</td><td>per commit</td></tr>
+      <tr><td><strong>Cleanroom</strong></td><td>Plugin loads from a fresh copy (no .git, no caches, no host config) via <code>claude --plugin-dir</code></td><td>seconds</td><td class="cost">$0</td><td>per commit</td></tr>
+      <tr><td><strong>End-to-end</strong></td><td>Full <code>/run</code> orchestrates research → … → manager against a fixture</td><td>minutes</td><td class="cost">~$2/run Haiku<br>~$15/run Sonnet</td><td>tags + nightly</td></tr>
+    </tbody>
+  </table>
+  <p>15/15 tests pass on v1.1.0. The cleanroom tier (<a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/tests/test_cleanroom_install.py">tests/test_cleanroom_install.py</a>) is the layer that catches the v1.0.0-class regression — manifest valid in isolation but the install layout broken — that the earlier suite missed.</p>
+  <p>Full taxonomy + reproducer: <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/tests/README.md">tests/README.md</a>.</p>
 </section>
 
-<section class="editorial">
-  <div class="editorial-grid">
-    <div class="section-num"><strong>§ 05</strong>Lessons<br>baked in</div>
-    <div class="section-body">
-      <h2>Defaults reflect failures, not preferences.</h2>
-      <p class="sans">
-        Every default in this plugin earned its place by being the fix
-        for a failure that cost real time on a real project. The following
-        are notable enough to call out.
-      </p>
-      <div class="lessons">
-        <div class="lesson"><div class="lh">Halts apply to everything</div><div class="lb">When the orchestrator stops, no other repo state changes happen — including in-flight cleanup PRs. Auto mode never overrides explicit stops.</div></div>
-        <div class="lesson"><div class="lh">Local pass is not evidence</div><div class="lb">Tests passing on the developer's machine are not proof. CI on a fresh dependency set, in a clean container, is.</div></div>
-        <div class="lesson"><div class="lh">Amendments are corrections</div><div class="lb">A manifest amendment fixes a wording defect. It does not expand scope. If the scope grew, that is a new run, not a manifest edit.</div></div>
-        <div class="lesson"><div class="lh">Manager cites, never summarises</div><div class="lb">The final decision quotes the verifier verbatim. Summarisation and encouragement are how bad runs get promoted, and both are forbidden in the role file.</div></div>
-        <div class="lesson"><div class="lh">Decisions are written</div><div class="lb">Director decisions belong in <code>director-decisions.md</code>, not in chat. The researcher surfaces them; the human picks in writing.</div></div>
-        <div class="lesson"><div class="lh">Standing invariants beat memory</div><div class="lb">v0.5.1's doc-currency invariants enforce inventory accuracy on every run because cumulative drift was the failure mode v0.2 through v0.5 silently accumulated.</div></div>
-      </div>
-    </div>
-  </div>
+<section>
+  <h2>Where it works</h2>
+  <p>The Cowork desktop app has three tabs running different runtimes. Plugin behavior differs:</p>
+  <table class="matrix">
+    <thead>
+      <tr><th>Tab</th><th>Slash commands</th><th>Skill bodies</th><th>Hooks</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Code</strong></td><td class="yes">✓</td><td class="yes">✓</td><td class="faint">N/A — no hooks</td></tr>
+      <tr><td><strong>Cowork-VM</strong></td><td class="yes">✓</td><td class="yes">✓</td><td class="faint">N/A — no hooks</td></tr>
+      <tr><td><strong>Chat</strong></td><td class="no">✗ (no shell)</td><td class="no">✗</td><td class="no">✗</td></tr>
+    </tbody>
+  </table>
+  <p>This plugin has no SessionStart/SessionEnd/Stop hooks — it's skill-only, which means it loads identically across Code and Cowork-VM tabs. (Some other Claude Code plugins use hooks and hit the Cowork-VM-tab hook bug <a href="https://github.com/anthropics/claude-code/issues/27398">#27398</a>; this plugin doesn't depend on hooks at all.)</p>
 </section>
 
-<section class="page colophon">
-  <div class="col">
-    <h4>Documentation</h4>
-    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/README.md">README</a>
-    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">User Manual</a>
-    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/ARCHITECTURE.md">Architecture</a>
-    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CHANGELOG.md">Changelog</a>
-  </div>
-  <div class="col">
-    <h4>Community</h4>
+<section>
+  <h2>Honest caveats</h2>
+  <ul>
+    <li><strong>Smaller models drift on summary-line format.</strong> The auto-promote check regex requires lines like <code>**Findings: 7 total, 1 blocker, 0 critical, 3 major, 3 minor**</code> exactly. Haiku doesn't always conform; Sonnet does. When the format drifts, auto-promote correctly identifies the miss and falls back to the human manager gate — that's the design. For routine runs Haiku is fine; for runs where you want auto-promote eligibility, use Sonnet (set <code>--model claude-sonnet-4-6</code> at session start).</li>
+    <li><strong>The plugin can't self-test E2E in CI.</strong> Pipeline runs require a real Claude session and real model spend. The cleanroom tier is the automated load-bearing layer; E2E is manual or on-tag.</li>
+    <li><strong>run.log only logs the manifest stage</strong> today. The other stage roles don't append to it. v1.x followup; doesn't affect correctness.</li>
+    <li><strong>Drafter quality depends on your spec quality.</strong> If the project lacks a release plan, scope-lock, or design note, the drafter falls back to a minimal skeleton manifest and asks you to fill in the gaps in chat before approval.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>What changed in v1.1.0</h2>
+  <ul>
+    <li><strong>Skills are self-contained.</strong> All pipeline payload (role files, templates, policy scripts) is now bundled under <code>skills/pipeline-init/references/pipeline-payload/</code>. The plugin no longer relies on repo-root paths after Cowork copies a plugin into its cache — fixing a v1.0.x regression where install layouts diverged.</li>
+    <li><strong>Deepened packaging check.</strong> <code>scripts/check_skill_packaging.py</code> now recursively scans every <code>*.md</code> under each skill folder (not just SKILL.md). Discriminating regex flags plugin-owned paths while skipping legitimate consumer-project paths (<code>docs/</code>, <code>tests/</code>, <code>CLAUDE.md</code>) and bundled-payload templates.</li>
+    <li><strong>Automated cleanroom test.</strong> <code>tests/test_cleanroom_install.py</code> exercises a fresh copy via <code>claude --plugin-dir &lt;copy&gt;</code> on every commit. Catches install-layout regressions the unit-test layer would miss.</li>
+    <li><strong>Five-tier testing taxonomy.</strong> Static / Unit / Smoke / Cleanroom / E2E documented in <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/tests/README.md">tests/README.md</a>.</li>
+  </ul>
+  <p>Full release notes: <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CHANGELOG.md">CHANGELOG.md</a>.</p>
+</section>
+
+<section>
+  <h2>Documentation</h2>
+  <ul>
+    <li><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/README.md">README</a> — overview, install, quick start</li>
+    <li><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">User Manual</a> — install paths, configuration, slash command reference, troubleshooting</li>
+    <li><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/ARCHITECTURE.md">Architecture</a> — stage-by-stage data flow, manifest schema, role file contracts</li>
+    <li><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CHANGELOG.md">Changelog</a> — release-by-release</li>
+    <li><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CONTRIBUTING.md">Contributing</a> — how to extend roles, policies, fixtures</li>
+    <li><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/tests/README.md">Testing</a> — taxonomy, reproducer, fixtures</li>
+  </ul>
+</section>
+
+<footer>
+  <p>By <a href="https://github.com/scottconverse">Scott Converse</a>. Apache-2.0 licensed. v1.1.0 released 2026-05-12.</p>
+  <p>
+    <a href="https://github.com/scottconverse/agent-pipeline-claude">Repo</a> ·
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/USER-MANUAL.md">Manual</a> ·
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/ARCHITECTURE.md">Architecture</a> ·
+    <a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/tests/README.md">Testing</a> ·
     <a href="https://github.com/scottconverse/agent-pipeline-claude/discussions">Discussions</a>
-    <a href="https://github.com/scottconverse/agent-pipeline-claude/issues">Issues</a>
-    <a href="https://github.com/scottconverse/agent-pipeline-claude/releases">Releases</a>
-  </div>
-  <div class="col">
-    <h4>Stability</h4>
-    <p>Beta. The structural pattern has shipped across multiple projects and absorbed real failure receipts into its defaults. Semver applies once <code>0.1.x-beta</code> drops.</p>
-    <p style="margin-top: 14px;"><a href="https://github.com/scottconverse/agent-pipeline-claude/blob/main/CHANGELOG.md">Read the changelog →</a></p>
-  </div>
-</section>
-
-</main>
-
-<footer class="foot page">
-  <span>© Scott Converse · Apache-2.0</span>
-  <span><a href="https://github.com/scottconverse/agent-pipeline-claude">github</a> · <a href="https://github.com/scottconverse/agent-pipeline-claude/discussions">discussions</a></span>
-  <span>v1.0.0 · 2026</span>
+  </p>
 </footer>
 
+</div>
 </body>
 </html>
