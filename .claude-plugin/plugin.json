@@ -1,6 +1,6 @@
 {
   "name": "agent-pipeline-claude",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Run multi-step Claude Code work without drift. Plugin reads your project's spec and drafts a per-run scope contract; you APPROVE in chat. Then research → plan → execute → verify → critique runs end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote. Cowork-first, one slash command (/run), no YAML for you to hand-author.",
   "author": {
     "name": "Scott Converse",
