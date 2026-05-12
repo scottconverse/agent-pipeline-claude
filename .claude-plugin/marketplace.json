@@ -6,7 +6,7 @@
     "email": "sconverse@gmail.com"
   },
   "metadata": {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "homepage": "https://scottconverse.github.io/agent-pipeline-claude/",
     "repository": "https://github.com/scottconverse/agent-pipeline-claude"
   },
@@ -14,7 +14,7 @@
     {
       "name": "agent-pipeline-claude",
       "description": "/run drafts a per-run scope contract from your project's spec/release-plan/scope-lock/design-notes, presents it for chat-message APPROVE, then orchestrates research → plan → execute → policy → verify → drift-detect → critique → auto-promote → manager. Three human gates (scope/plan/manager) in chat. Opt-in real-time judge (file-presence). Machine-checkable auto-promote. Cowork-first install path; CLI users supported.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "source": "./",
       "author": {
         "name": "Scott Converse",

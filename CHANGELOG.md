@@ -5,6 +5,25 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-05-11
+
+Critical Cowork compatibility fix. v1.0.0 shipped the primary `/run` entry point as a plugin command under `commands/run.md`, but Cowork only loads plugin-provided user commands from the `skills/<name>/SKILL.md` layout. Net result on v1.0.0: every Cowork user typing `/run` saw *"/run isn't a recognized command here. Some commands only work in the Claude Code terminal."* — making the plugin's primary UX unreachable for the audience it was specifically rewritten for.
+
+Surfaced the first time `/run` was exercised in a live Cowork session (CivicCast Slice 1 Commit 8 test-drive, 2026-05-11). Fix is purely additive — same content, correct loader-visible layout.
+
+### Fixed
+
+- **`/run`, `/pipeline-init`, `/new-run`, `/run-pipeline`, `/audit-init` now load in Cowork.** Each command is mirrored as `skills/<name>/SKILL.md` (identical body content, frontmatter gains a `name:` field). The legacy `commands/*.md` files are kept for any CLI consumer that still scans them, but the `skills/` layout is the authoritative path going forward — it's the layout the Anthropic claude-plugins-official examples use and the one Cowork's plugin loader discovers.
+- **Documented Cowork command-loading reality.** The v1.0.0 README and `pipeline-init.md` Step 4 claimed slash commands "register at session start" without distinguishing the `commands/` vs `skills/` layouts. This patch supersedes that claim mechanically by shipping the correct layout; a documentation pass to update the prose is queued for v1.0.2.
+
+### Preserved unchanged
+
+- All v1.0.0 content, role files, policy scripts, schema validator, drafter logic, orchestration rules, gate semantics, and pipeline definitions. The patch only changes file layout, not behavior.
+
+### Action required for v1.0.0 users
+
+After upgrading the plugin install to v1.0.1, restart your Cowork session so the newly-discoverable `skills/` directory is picked up. Then type `/run status` to confirm registration.
+
 ## [1.0.0] — 2026-05-11
 
 UX rewrite. The v0.5 hardening mechanism (critic + drift-detector + judge layer + auto-promote + strict schema) is preserved unchanged; everything around it that touches a user is rebuilt around four load-bearing decisions: Cowork-first, spec-aware drafting, one command, chat-native gates.
