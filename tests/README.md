@@ -1,67 +1,128 @@
 # tests/
 
-Test surface for `agent-pipeline-claude` v1.0.0+.
+Test surface for `agent-pipeline-claude` v1.1.0+.
 
-## What's testable
+## Testing taxonomy
 
-### Unit-testable (Python policy scripts)
+Five layers, ordered by cost and depth:
 
-- `scripts/check_manifest_schema.py` — the schema validator. Tested at `tests/test_check_manifest_schema.py`.
-- `scripts/check_allowed_paths.py` — the path-enforcement check. (Tests TODO; v1.0 ships without.)
-- `scripts/check_no_todos.py` — the TODO/FIXME/HACK scan. (Tests TODO; v1.0 ships without.)
-- `scripts/check_adr_gate.py` — the ADR append-only check. (Tests TODO; v1.0 ships without.)
-- `scripts/auto_promote.py` — the six-condition machine-checkable promote. (Tests TODO; v1.0 ships without.)
+| Layer | What it proves | Runtime | API spend | When it runs |
+|---|---|---|---|---|
+| **Static** | Manifests well-formed; shell/Python syntax OK | ms | $0 | every commit (CI) |
+| **Unit** | Policy scripts behave correctly on synthetic input | seconds | $0 | every commit (CI) |
+| **Smoke** | Plugin's skills are self-contained when copied to an installed-cache shape | seconds | $0 | every commit (CI) |
+| **Cleanroom** | Plugin loads from a fresh copy (no `.git`, no caches, no host config) via `claude --plugin-dir` | seconds | $0 | every commit (CI) |
+| **End-to-end** | Full `/run` orchestrates research → … → manager against a fixture | minutes | ~$2/run (Haiku) | tags + nightly |
 
-The schema validator is the highest-leverage test target — it's the gate every run's manifest hits, and a regression here breaks every downstream stage. v1.0 ships with that one well-tested; the other policy scripts get tests in follow-up commits as needed.
+Each layer catches a different failure class. The cleanroom tier specifically guards against the v1.0.0 / v1.0.1 regression where the plugin passed unit tests + manifest validation in isolation but the loader silently rejected the install layout — that bug is exactly the failure mode `tests/test_cleanroom_install.py` catches now.
 
-### Integration-testable (the manifest-drafter role)
+### Static
 
-The manifest-drafter is a markdown role file, not Python. It can't be unit-tested, but it CAN be exercised against fixture projects.
+- **Manifest validation:** `claude plugin validate .claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` must both report `✔ Validation passed`.
+- **Plugin structure check:** `python tests/check_plugin_structure.py` — counts skills, commands, roles, pipelines and confirms the install-shape is intact.
+- **Skill packaging check:** `python scripts/check_skill_packaging.py` — recursively scans every `*.md` under each skill folder, flags repo-root path references (`pipelines/...`, `scripts/...`) that won't resolve from an installed-cache copy. Discriminating regex skips legitimate consumer-project paths (`docs/`, `tests/`, `CLAUDE.md`).
 
-`tests/fixtures/civiccast-shaped/` is a stripped-down replica of a CivicCast-style project structure: it has a one-line spec file, a release-plan file, a per-rung scope-lock, a design note, a CLAUDE.md, and a sample HANDOFF.md. The drafter run against this fixture should produce a populated `manifest.yaml` with ≥8 of 11 fields auto-derived.
+### Unit
 
-`tests/fixtures/greenfield/` is an empty directory. The drafter run here should return `"NO_SPEC_FOUND"` and write a minimal-skeleton manifest.
+- **`tests/test_check_manifest_schema.py`** — the schema validator's pass/fail surface on synthetic manifests. Covers version reporting, error message format, multiple-violations handling. Highest-leverage Python target because the validator gates every run's manifest.
+- Other policy scripts (`check_allowed_paths.py`, `check_no_todos.py`, `check_adr_gate.py`, `auto_promote.py`) ship with minimal coverage — tests are TODO for v1.x. The schema validator is the load-bearing one.
 
-To exercise the drafter manually:
+### Smoke
+
+- **`tests/test_skill_packaging.py`** — wraps `scripts/check_skill_packaging.py` in pytest, verifies the plugin's skills are self-contained when copied into an installed-cache shape.
+
+Smoke + Static together catch "manifest valid in isolation, but loader rejects layout" regressions.
+
+### Cleanroom
+
+- **`tests/test_cleanroom_install.py`** — three tests against a fresh copy of the plugin in an isolated `tmp_path/agent-pipeline-claude/` (no `.git`, no `__pycache__`, no `.agent-runs/`, no `installed_plugins.json` entries):
+  1. `test_cleanroom_install_loads_via_plugin_dir` — runs `claude --plugin-dir <copy> plugin list` and asserts the plugin shows up with `Status: ✔ loaded` and the manifest-declared version.
+  2. `test_cleanroom_install_validates` — runs `claude plugin validate` against both manifests in the cleanroom copy.
+  3. `test_cleanroom_install_structure_check` — runs `check_plugin_structure.py` from inside the cleanroom copy as cwd.
+
+Cleanroom is the highest-leverage automated tier. It catches every install-path regression unit tests + dev-clone smoke tests would miss. The v1.0.0 / v1.0.1 schema bug would have failed cleanroom but not the original unit tests — exactly the gap this layer closes.
+
+Cleanroom tests skip gracefully if `claude` isn't on PATH (via `pytest.skip`).
+
+### End-to-end
+
+E2E exercises `/run` against a real Claude Code session with a real model. The plugin is a Python-and-Markdown orchestrator for an LLM-driven pipeline; the only complete verification is actually running a pipeline.
+
+`tests/fixtures/` holds two fixture projects:
+
+- **`civiccast-shaped/`** — stripped-down replica of a CivicCast-style project: one-line spec, release plan, per-rung scope-lock, design note, CLAUDE.md, sample HANDOFF.md. Drafter should produce a manifest referencing the scope-lock and design doc.
+- **`greenfield/`** — empty directory. Drafter should return `NO_SPEC_FOUND` and write a minimal-skeleton manifest.
+
+E2E procedure (manual or CI-on-tag):
 
 ```bash
+# Prereqs: claude CLI on PATH, ANTHROPIC_API_KEY set,
+# plugin enabled (`claude plugin list` reports ✔ enabled)
+
 cd tests/fixtures/civiccast-shaped/
-# Open Claude Code (Cowork or CLI) in this directory.
-# Once the plugin loads:
-/pipeline-init       # confirms the fixture's documents are detected
-/run "close QA-005 conflict-409 race"   # drafter runs; produces manifest in chat
+SID=$(python -c "import uuid; print(uuid.uuid4())")
+
+# Step 1: pipeline-init (two-turn: invoke + APPROVE)
+claude -p --session-id "$SID" --model haiku \
+  'Use the Skill tool to invoke "agent-pipeline-claude:pipeline-init".'
+claude -p --resume "$SID" --model haiku 'APPROVE'
+
+# Step 2: /run draft manifest
+claude -p --resume "$SID" --model haiku \
+  'Use the Skill tool to invoke "agent-pipeline-claude:run" with task: close QA-005 conflict-409 race.'
+
+# Step 3: APPROVE manifest; pipeline executes
+claude -p --resume "$SID" --model haiku 'APPROVE'
+
+# Inspect produced artifacts
+ls .agent-runs/<run-id>/
 ```
 
-You should see the drafter's one-line summary mention `docs/releases/v0.4-scope-lock.md` and `docs/research/v04-slice1-design.md` as sources.
+Expected artifacts in `.agent-runs/<run-id>/`:
+- `manifest.yaml`, `draft-provenance.md`
+- `research.md`, `plan.md`
+- `implementation-report.md`, `policy-report.md`
+- `verifier-report.md`, `failing-tests-report.md`
+- `drift-report.md`, `critic-report.md`
+- `auto-promote-report.md`, `manager-decision.md`
+- `run.log`
 
-A fully-automated integration test that spawns a real Claude session is out of scope for v1.0 — the plugin would have to invoke itself recursively, which CI can't currently provide. This is documented as a v1.x follow-up.
+**E2E is NOT yet pytest-driven.** It requires API spend (~$2/run with Haiku, ~$20/run with Sonnet) and an interactive multi-turn driver. A future `tests/test_e2e_fixture_run.py` could automate this against `--model haiku` for tag CI, but for v1.1.0 it's manual and the cleanroom tier handles the per-commit automated layer.
 
-### Not testable (the role files themselves)
+**Fixture-pollution caution.** Running `/run` against `tests/fixtures/civiccast-shaped/` writes stub source code, tests, and `.agent-runs/` into the fixture (the executor stage materializes code that matches the manifest's `allowed_paths`). Before re-running the test suite afterwards, clean the fixture:
 
-`pipelines/roles/researcher.md`, `planner.md`, `executor.md`, `verifier.md`, `drift-detector.md`, `critic.md`, `manager.md`, `judge.md`, `manifest-drafter.md` etc. are spec-style documents. The "test" for these is: a fresh Claude session given just the role file + run context produces the right artifact. That's an integration test against a live Claude API, not a unit test.
+```bash
+git clean -fdx tests/fixtures/civiccast-shaped/
+git checkout tests/fixtures/civiccast-shaped/
+```
 
-The review process for changes to these files is:
-1. Manual review of the markdown (does it match the role-file shape?).
-2. Exercise the role in a real pipeline run against a fixture project.
-3. Inspect the produced artifact for shape + content.
+Otherwise pytest will try to collect the executor's generated `tests/schedule/*.py` and fail on import.
+
+### What deliberately is NOT tested
+
+- **Role-file content** (`pipelines/roles/*.md`). These are spec-style markdown for LLM consumption. The "test" is running a fixture-E2E pipeline against the role and inspecting the artifact. No useful unit assertion exists.
+- **Manager decision quality.** Same reason — LLM judgment is inspected manually or audited via critic/drift role outputs.
+- **Real-world project integration** beyond the fixtures. Each project type has its own shape; we test the plugin, not every consumer.
 
 ## Running
 
 ```bash
-pip install pytest  # if not already installed
-python -m pytest tests/ -v
+pip install pytest
+python -m pytest tests/ -v       # all static, unit, smoke, cleanroom
+python -m pytest tests/test_cleanroom_install.py -v  # cleanroom only
 ```
-
-From the repo root. Tests don't require any external services; `tests/fixtures/` contains everything needed.
 
 ## Adding tests
 
 For a new policy script:
-1. Drop `tests/test_check_<name>.py` mirroring the schema-test pattern.
-2. Each test has a setup fixture writing a synthetic manifest, runs the script via subprocess or import, asserts exit code + key output strings.
-3. Cover at least one pass case + one fail case + one edge case.
+1. Drop `tests/test_check_<name>.py` mirroring `test_check_manifest_schema.py`.
+2. Cover at least one pass + one fail + one edge case.
 
-For a new fixture project:
-1. Drop a directory under `tests/fixtures/<name>/`.
-2. Include a `README.md` at the fixture root explaining what shape the fixture represents.
-3. Document the expected drafter behavior in `tests/README.md`.
+For a new fixture:
+1. `tests/fixtures/<name>/` with a `README.md` explaining its shape.
+2. Document expected drafter / executor behavior in this README.
+
+For a new test tier (e.g., automated E2E):
+1. Add a `tests/test_<tier>_*.py` module.
+2. If it requires external resources (`claude` CLI, API key), gracefully skip via `pytest.skip` when unavailable.
+3. Document the tier in the table at the top of this README.
