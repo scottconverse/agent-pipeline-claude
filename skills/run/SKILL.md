@@ -1,7 +1,7 @@
 ---
 name: run
 description: Start a pipeline run. Drafts a scope contract from your project's spec and presents it for chat-message APPROVE, then orchestrates research → plan → execute → verify → critique end-to-end.
-argument-hint: "<short description>"  (or:  resume <run-id>  |  status)
+argument-hint: '"<short description>" | resume <run-id> | status'
 ---
 
 # /run — drafted-and-driven pipeline run
