@@ -37,8 +37,32 @@ This release fixes all three structurally and ports the proven packaging pattern
 - **Bundled audit templates inside `skills/audit-init/references/`.** The three templates (`audit-gate-template.md`, `audit-protocol-template.md`, `5-lens-self-audit-template.md`) ship inside the skill folder. The procedure file points at the bundled copies, not at the repo-root `pipelines/templates/` path that won't resolve from installed caches.
 - **Bundled the entire pipeline payload at `skills/pipeline-init/references/pipeline-payload/`.** All 32 files (pipeline definitions, role files, policy scripts) the `/pipeline-init` skill scaffolds into a consumer's project now live inside the skill folder. The procedure copies from the bundled payload, not from `pipelines/` or `scripts/` at repo-root.
 - **`scripts/check_skill_packaging.py`** — validator originally ported from `agent-pipeline-codex/scripts/check_skill_packaging.py`. **Deepened in v1.1.0** to scan every `*.md` file under each skill recursively (not just `SKILL.md`), with a discriminating regex that flags plugin-owned paths (`pipelines/`, `scripts/`) while skipping consumer-project paths (`docs/`, `tests/`, `CLAUDE.md`) and bundled-payload templates (paths inside `references/pipeline-payload/`). Catches the procedure-level wiring bugs that the original shallow scan missed.
-- **`tests/test_skill_packaging.py`** — pytest wrapper around the packaging check. Now part of the standard test gate (12 tests pass, was 11).
+- **`tests/test_skill_packaging.py`** — pytest wrapper around the packaging check. Part of the standard test gate.
 - **Policy script `--version` strings bumped 1.0.0 → 1.1.0** in `auto_promote.py` and `check_manifest_schema.py` (both top-level and bundled copies under the pipeline payload). Confirms which release a `/pipeline-init`-scaffolded project came from.
+
+### Added (v1.1.0 polish)
+
+These commits land on top of the v1.1.0 install/runtime adapter rewrite to close two trust gaps Scott called out after the initial merge: no automated cleanroom test, no comprehensive testing taxonomy.
+
+- **`tests/test_cleanroom_install.py`** (NEW, 3 tests). Closes the "no automated cleanroom test" gap. Copies the plugin to a `tmp_path/agent-pipeline-claude/` (no `.git`, no `__pycache__`, no `.agent-runs/`, no `installed_plugins.json` entries) and exercises three load-bearing paths against it:
+  1. `claude --plugin-dir <copy> plugin list` → asserts `Status: ✔ loaded` + manifest version match.
+  2. `claude plugin validate` against both manifests in the cleanroom copy.
+  3. `check_plugin_structure.py` run from inside the cleanroom copy.
+
+  All three skip gracefully if `claude` CLI is not on PATH. **This is the layer that catches the v1.0.0/v1.0.1 regression class** — manifest valid in isolation but the install layout silently rejected by the loader — that unit + smoke tests would miss. Test suite is now **15 passed** (was 12).
+
+- **`tests/README.md` rewritten with five-tier testing taxonomy**:
+  - **Static**: manifest validation + structure check + skill-packaging scan (ms, $0/commit).
+  - **Unit**: pytest on policy scripts (seconds, $0/commit).
+  - **Smoke**: skill self-containment in installed-cache shape (seconds, $0/commit).
+  - **Cleanroom**: `--plugin-dir <copy>` load + validate from a fresh copy (seconds, $0/commit).
+  - **End-to-end**: full `/run` orchestration against a fixture, real model spend (minutes, ~$2 Haiku / ~$15 Sonnet, tags + nightly).
+
+  The doc spells out which tier catches which failure class, includes the E2E procedure with the actual `claude -p --session-id` multi-turn flow, and documents the fixture-pollution caution (`/run`'s executor materializes files matching `manifest.allowed_paths` into the fixture and pytest will fail on those generated test files unless the fixture is cleaned afterwards via `git clean -fdx tests/fixtures/<name>/`).
+
+- **`docs/index.html` rewritten for v1.1.0**. The v0.5 "museum-quality" landing page (706 lines, custom typography) was stuck at v1.0.0. Replaced with a restrained, honest v1.1.0 page (280 lines, system fonts, zero external deps, dark-mode aware) focused on what the plugin actually does, the five-tier testing tiers as trust signal, and the honest caveats (Haiku-vs-Sonnet format drift, no CI E2E, `run.log` gap). The old landing page is preserved in git history at commit `1cffff4` (`design(landing): museum-quality rebuild — Schematic Restraint`) — pull it back via `git checkout 1cffff4 -- docs/index.html` if preferred.
+
+- **`.gitignore`** adds `.claude/` (some Claude Code surfaces write a `.claude/` dir alongside the repo; never commit it).
 
 ### Verification evidence
 
@@ -63,6 +87,12 @@ Session-only plugins (--plugin-dir):
   ❯ agent-pipeline-claude@inline
     Version: 1.1.0
     Status: ✔ loaded
+
+$ python -m pytest tests/ -v
+tests/test_check_manifest_schema.py ........... [11 PASSED]
+tests/test_cleanroom_install.py ...            [3 PASSED]
+tests/test_skill_packaging.py .                [1 PASSED]
+======================== 15 passed ========================
 ```
 
 ### Action required
