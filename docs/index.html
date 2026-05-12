@@ -266,7 +266,7 @@
 <header class="masthead">
   <div class="mark">agent-pipeline-claude</div>
   <div class="meta">
-    <span>v0.5.2</span>
+    <span>v1.0.0</span>
     <span>Apache-2.0</span>
     <span>Claude Code plugin</span>
   </div>
@@ -280,7 +280,7 @@
       <div class="runtime-tags">
         <div class="runtime-tag"><strong>Claude Code</strong></div>
         <div class="runtime-tag">Apache-2.0</div>
-        <div class="runtime-tag">beta</div>
+        <div class="runtime-tag">v1.0.0</div>
       </div>
       <h1 class="hero-title">
         Structural<br>
@@ -301,20 +301,21 @@
     </div>
 
     <aside class="hero-meta">
-      <div class="row"><span>Release</span><strong class="rust">0.5.2</strong></div>
+      <div class="row"><span>Release</span><strong class="rust">1.0.0</strong></div>
+      <div class="row"><span>Slash command</span><strong>/run</strong></div>
       <div class="row"><span>Stages</span><strong>11</strong></div>
       <div class="row"><span>Human gates</span><strong>3</strong></div>
-      <div class="row"><span>Role files</span><strong>13</strong></div>
-      <div class="row"><span>Policy checks</span><strong>5</strong></div>
+      <div class="row"><span>Role files</span><strong>14</strong></div>
+      <div class="row"><span>Policy checks</span><strong>6</strong></div>
       <div class="row"><span>Pipelines</span><strong>3</strong></div>
-      <div class="row"><span>Status</span><strong>beta</strong></div>
+      <div class="row"><span>Status</span><strong>stable</strong></div>
     </aside>
   </div>
 </section>
 
 <section class="diagram-wrap frame">
   <span class="frame-mark">Fig. 01 · Pipeline schematic</span>
-  <span class="frame-mark-right">v0.5.2 · feature.yaml</span>
+  <span class="frame-mark-right">v1.0.0 · feature.yaml</span>
 
   <div class="figcap">
     <span class="label">Eleven stages · four phases · three gates</span>
@@ -484,7 +485,7 @@
     </div>
     <div class="item">
       <span class="swatch new"></span>
-      <div class="text"><strong>New at v0.5</strong>Drift-detector, critique, auto-promote. Single-AI hardening.</div>
+      <div class="text"><strong>New at v1.0</strong>Manifest drafted from your project spec. One slash command (/run). Chat-native gates.</div>
     </div>
   </div>
 </section>
@@ -535,18 +536,21 @@
       </p>
 
       <div class="install"><pre><span class="comment"># Install once, across all Claude Code projects</span>
+<span class="comment"># Cowork users: paste the bootstrap prompt from README.md § Install</span>
+<span class="comment"># CLI users (if /plugin available):</span>
 <span class="prompt">›</span> /plugin install scottconverse/agent-pipeline-claude
 
-<span class="comment"># Then in any project root</span>
+<span class="comment"># Restart your session so the new slash commands register.</span>
+<span class="comment"># Then in any project root:</span>
 <span class="prompt">›</span> /pipeline-init
-<span class="prompt">›</span> /new-run feature <span style="color:#8e8a80;">&lt;task-slug&gt;</span>
-<span class="comment">›  ... fill in the manifest the plugin scaffolds ...</span>
-<span class="prompt">›</span> /run-pipeline feature <span style="color:#8e8a80;">&lt;run-id&gt;</span></pre></div>
+<span class="prompt">›</span> /run <span style="color:#8e8a80;">&quot;short description of your work&quot;</span>
+<span class="comment">›  ... the drafter reads your spec and shows a manifest in chat ...</span>
+<span class="comment">›  ... reply APPROVE; the pipeline runs end-to-end ...</span></pre></div>
 
       <div class="runtimes">
         <div>
           <h4>Slash commands</h4>
-          <p>Four commands cover the full surface: <code>/pipeline-init</code> onboards a project, <code>/new-run</code> initializes a run manifest, <code>/run-pipeline</code> orchestrates the eleven stages with resume-from-log, <code>/audit-init</code> scaffolds the v0.3 dual-AI audit-handoff discipline.</p>
+          <p>Two commands cover the full surface in v1.0: <code>/pipeline-init</code> onboards a project, <code>/run</code> drafts the manifest from your spec, presents it in chat, and orchestrates the eleven stages with resume-from-log. <code>/audit-init</code> scaffolds the v0.3 dual-AI audit-handoff discipline. The v0.5.x two-step <code>/new-run</code> + <code>/run-pipeline</code> survives in v1.0 as deprecated shims and will be removed at v1.1.</p>
         </div>
         <div>
           <h4>Subagent isolation</h4>
@@ -604,12 +608,21 @@
           </div>
         </div>
 
-        <div class="layer current">
-          <div class="v">v0.5.2<strong>Rename + scope</strong><span class="badge">Current</span></div>
+        <div class="layer">
+          <div class="v">v0.5.2<strong>Rename + scope</strong></div>
           <div>
             <div class="l-title">Plugin renamed to <code>agent-pipeline-claude</code>. Claude Code only.</div>
             <p class="l-body">The plugin is now scoped specifically to Claude Code. The structural surface — commands, role files, policy scripts, pipeline definitions, run-state convention — is unchanged from v0.5.1. The dual-AI audit-handoff discipline (v0.3) still pairs Claude with any second AI; the second AI now lives in its own downstream repo rather than entangled with this one.</p>
             <div class="l-catches"><strong>Removes</strong> Cross-runtime entanglement. Each runtime can now ship on its own cadence.</div>
+          </div>
+        </div>
+
+        <div class="layer current">
+          <div class="v">v1.0<strong>UX rewrite</strong><span class="badge">Current</span></div>
+          <div>
+            <div class="l-title">One slash command, drafted manifest, chat-native gates.</div>
+            <p class="l-body">v1.0 keeps every v0.5 hardening guarantee and rebuilds the surface around four load-bearing decisions. <strong>Cowork-first install</strong> — the paste-able bootstrap prompt handles environments without <code>/plugin install</code>. <strong>Spec-aware drafting</strong> — the manifest-drafter walks your project's spec, release-plan, scope-lock, design-notes, ADRs, CLAUDE.md, and ledgers, then auto-derives 9 of 11 manifest fields. <strong>One command</strong> — <code>/run</code> replaces <code>/new-run</code> + <code>/run-pipeline</code>. <strong>Chat-native gates</strong> — APPROVE / REPLAN / BLOCK in chat, not modal popups.</p>
+            <div class="l-catches"><strong>Catches</strong> The "blank YAML I have to fill in" failure mode. The "I don't have <code>/plugin install</code>" failure mode. The "wait, which slash command was it again" failure mode.</div>
           </div>
         </div>
       </div>
@@ -686,7 +699,7 @@
 <footer class="foot page">
   <span>© Scott Converse · Apache-2.0</span>
   <span><a href="https://github.com/scottconverse/agent-pipeline-claude">github</a> · <a href="https://github.com/scottconverse/agent-pipeline-claude/discussions">discussions</a></span>
-  <span>v0.5.2 · 2026</span>
+  <span>v1.0.0 · 2026</span>
 </footer>
 
 </body>

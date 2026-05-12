@@ -75,6 +75,22 @@ See `pipelines/roles/local-rehearsal.md`.
 
 ### Running a module release sprint
 
+#### v1.0 way (recommended)
+
+```bash
+# Single command — drafter reads your module's spec + release plan + scope docs
+/run "release <module-name> v<version> with civiccore v<version> migration"
+
+# Example: civicrecords-ai migration
+/run "release civicrecords-ai v1.5.0 with civiccore v1.0.1 migration"
+```
+
+The manifest-drafter detects the "release" keyword in your description and selects the `module-release` pipeline automatically. It then walks the module's existing artifacts (module README, CivicSuite spec, release-lockstep config, downstream pins) and drafts the full manifest including the release-specific fields (`module.*`, `release.type`, `release.expected_artifacts`, etc.) for your review.
+
+You reply `APPROVE` in chat once the drafted manifest matches your intent. The orchestrator runs the four-phase pipeline.
+
+#### v0.5.x way (deprecated; works in v1.0 via shim, removed at v1.1)
+
 ```bash
 # Initialize a new run with the module-release pipeline
 /new-run module-release <module-slug>
@@ -139,6 +155,10 @@ pipeline_run:
 
 Then run:
 ```bash
+# v1.0 way:
+/run resume <run-id>
+
+# v0.5.x way (deprecated shim):
 /run-pipeline module-release <run-id>
 ```
 

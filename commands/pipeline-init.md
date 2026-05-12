@@ -1,121 +1,168 @@
 ---
-description: Initialize a project for the agentic pipeline. Onboards new projects from a PRD, an existing repo URL, or a description paragraph.
-argument-hint: (none — interactive)
+description: Initialize a project for pipeline runs. Reads your project's existing docs (or a PRD/description you point at), scaffolds .pipelines/ + scripts/policy/, and writes a starter CLAUDE.md if missing.
+argument-hint: "(optional) PRD path | repo URL | description"
 ---
 
-# /pipeline-init — onboard a project for agentic pipeline runs
+# /pipeline-init — onboard a project
 
-You are onboarding a project for use with the agentic pipeline plugin. The user has one of three things and you need to figure out which, then act on it. **You do not skip the orientation step. You do not silently scaffold based on assumptions.**
+You are onboarding a project for use with the agent-pipeline-claude plugin. Most projects only need to run this once.
+
+The plugin needs three things to do useful work later:
+1. A `.pipelines/` directory with role files + pipeline definitions.
+2. A `scripts/policy/` directory with the validation scripts.
+3. A `CLAUDE.md` capturing the project's conventions (the manifest-drafter reads it).
+
+This command produces all three, drafted from whatever the project already has.
+
+## Argument shapes
+
+`$ARGUMENTS` is one of:
+
+1. **Empty** — the common case. You're standing in the project root; this command inspects what's there.
+2. **A file path** — points at a PRD, spec, or description document. Read it as the source of truth for project orientation.
+3. **A URL** — a repo URL. The current working directory must be empty; this command will `git clone` then init.
+4. **A description paragraph** quoted at the prompt. Treat as inline-content PRD.
 
 ## What to do
 
-### Step 1 — Detect the input shape
+### Step 1 — orient
 
-If `$ARGUMENTS` is non-empty, parse it. The user may have passed a path, URL, or quoted description. Otherwise use `AskUserQuestion` to ask:
+Detect the project's current state:
 
-- **Question:** `What do you have? Drop one of: a PRD/spec document path, a repo URL or local path, or paste a project description.`
-- **Header:** `Project input`
-- **Options:**
-  - Label: `PRD or spec document` — Description: `I have a written specification document for this project. I'll paste the path or contents in the next message.`
-  - Label: `Existing repo (URL or local path)` — Description: `I have an existing project repo somewhere. I'll paste the URL or local path in the next message.`
-  - Label: `Description paragraph` — Description: `I have a paragraph or two describing what I want to build. I'll paste it in the next message.`
+```bash
+git status            # Are we in a repo? Clean tree?
+ls                    # What's at the root?
+git log --oneline -5  # Recent commits — gives context on the project's life
+```
 
-After the user picks an option, ask for the actual content if not already provided.
+Look for spec / release-plan / scope-lock / design-note artifacts using the same patterns the manifest-drafter walks (see `pipelines/roles/manifest-drafter.md` § "Source-walking protocol"). Look for stack indicators: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, etc. Look for `.github/workflows/`, `docs/adr/`, `CLAUDE.md`.
 
-### Step 2 — Branch by path
+### Step 2 — produce a one-message orientation summary
 
-#### Path 1: PRD or spec document
+Send the user a single chat message with:
 
-1. Read the document (Read tool if it's a file path; treat as inline text otherwise).
-2. Extract: project name, one-sentence purpose, target audience, primary capabilities, technical constraints, license posture, any named conventions (e.g., "uses Python 3.12", "frontend is React", "DB is Postgres").
-3. Determine the project's working directory:
-   - If the user is currently in a project directory with files (i.e., `git status` returns a real result), use that directory.
-   - If the current directory is empty, ask `AskUserQuestion`: `Use this directory or create a subdirectory?` with options `Use current directory` / `Create subdirectory`. If subdirectory, ask for the name (kebab-case).
-4. Run **Step 3 (scaffold)** with the extracted context.
+```
+Project orientation:
 
-#### Path 2: Existing repo (URL or local path)
+  Name: <inferred>
+  Stack: <language, framework, test runner, lint, type checker>
+  Existing artifacts: <list of relevant docs found, e.g. "CivicCastUnifiedSpec-v2.md, CivicCast-ReleasePlan, docs/releases/v0.4-scope-lock.md, CLAUDE.md">
+  Missing: <gaps, e.g. "no docs/adr/ — the ADR policy gate will be disabled until you add one">
+  Test framework: <pytest | jest | unknown>
+  CI: <detected workflow files or "none">
 
-1. Determine if it's a remote URL (starts with `https://` or `git@`) or a local path.
-2. If remote and not already cloned: ask `AskUserQuestion`: `Clone to current directory or specify a target?` then `git clone` it.
-3. If local: `cd` to it.
-4. Inspect the repo:
-   - `git log --oneline -5` — recent commits
-   - Read `README.md` (or `README` or `readme.md`) if present
-   - Read `CLAUDE.md` at root if present
-   - Read `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, etc. — whichever exist
-   - List `.github/workflows/` if it exists
-   - List `docs/adr/` if it exists
-   - Check for an existing `.pipelines/` directory (if present, the project is already initialized — ask if user wants to re-init or update)
-5. Produce a **project-orientation summary** for the user (markdown, displayed inline, NOT written to a file at this stage):
-   - Project name + one-sentence inferred purpose
-   - Detected stack (language, framework, test runner, lint, type checker)
-   - Detected conventions (commit format, branch naming, ADR presence, CLAUDE.md presence)
-   - Missing pieces flagged (e.g., "no CLAUDE.md found — I'll scaffold a minimal one", "no docs/adr/ — ADR gate will be disabled until you add one")
-6. Ask user via `AskUserQuestion`: `Project orientation looks correct? Type APPROVE to scaffold the pipeline, or describe what's wrong.` If APPROVE, run **Step 3 (scaffold)**. Otherwise, take their feedback and adjust.
+Reply `APPROVE` to scaffold .pipelines/ + scripts/policy/ + (if missing) CLAUDE.md.
+Reply `WAIT` to fix anything in the summary first.
+Reply with corrections in plain English and I'll re-summarize.
+```
 
-#### Path 3: Description paragraph
+Do NOT scaffold without an explicit `APPROVE`.
 
-1. Read the description.
-2. Ask `AskUserQuestion`: `Is this a NEW project to scaffold from scratch, or context for an EXISTING repo?` with options `New project` / `Existing repo`.
-3. If **new project**: prompt for a project name (kebab-case), then synthesize a minimal PRD from the description and treat as Path 1.
-4. If **existing repo**: prompt for repo URL or local path and treat as Path 2 (the description goes into the orientation summary as user-provided context).
+### Step 3 — scaffold on APPROVE
 
-### Step 3 — Scaffold (shared across all paths)
+When the user replies `APPROVE`:
 
-Once the project's working directory is identified and the orientation is settled, scaffold:
-
-1. **`.pipelines/` directory** — copy from the plugin's `pipelines/` directory:
+1. **`.pipelines/` directory.** Copy from the plugin's `pipelines/` directory into the project root:
    - `feature.yaml`
    - `bugfix.yaml`
+   - `module-release.yaml` (if user wants module-release support; default yes for projects with version files)
    - `manifest-template.yaml`
-   - `roles/` (all 6 role files)
+   - `self-classification-rules.md`
+   - `roles/` (all role files, including the new `manifest-drafter.md`)
 
-2. **`scripts/policy/` directory** — copy from the plugin's `scripts/`:
+2. **`scripts/policy/` directory.** Copy from the plugin's `scripts/`:
    - `__init__.py`
+   - `check_manifest_schema.py`
    - `check_allowed_paths.py`
    - `check_no_todos.py`
    - `check_adr_gate.py`
+   - `auto_promote.py`
    - `run_all.py`
 
-3. **`.gitignore`** — append `.agent-runs/` (create file if it doesn't exist; check for existing entry before appending to avoid duplicates).
+3. **`.gitignore`** — append `.agent-runs/` if not already present.
 
-4. **`CLAUDE.md`** — only if the project doesn't have one:
-   - Scaffold a minimal `CLAUDE.md` populated from the orientation summary (project purpose, stack, conventions). Include sections for: order of operations, layered audit pattern (4 altitudes), closed architectural decisions (empty until first ADR), open decisions (empty), tooling, non-negotiables (empty placeholder), git workflow, role posture, and "What you never do" list.
-   - The user is expected to edit this. The plugin gives them a starting structure, not the final word.
+4. **`CLAUDE.md`** — if the project doesn't have one, scaffold a starter. The starter is short (no boilerplate) and includes ONLY:
+   - One paragraph: what this project is, derived from Step 2 orientation.
+   - `## Pipeline drafter notes` section — tells the manifest-drafter where this project keeps its spec, release plan, scope-locks, design notes, ledgers, and HANDOFF. This is the file's most important section for v1.0 operation.
+   - `## Order of operations` — three sentences on how changes flow (e.g. "branch from main, work in slices, tag at rung close").
+   - `## Tooling` — language, test runner, lint, type checker, pre-commit hooks.
+   - `## Non-negotiables` — empty placeholder for the user to fill in.
 
-5. **Display a summary** to the user:
-   - What was scaffolded (file list)
-   - What was inferred about the project
-   - What's missing (no `docs/adr/`? no CI? no tests directory?) and what each gap means for downstream pipeline behavior
-   - Next step: `/new-run feature <slug>` to start the first pipeline run
+   The user is expected to edit it. The plugin gives a starting shape, not the final word.
 
-### Step 4 — Hand off via AskUserQuestion
+5. **Final scaffold report.** Send a chat message:
+   ```
+   Scaffold complete.
 
-Use `AskUserQuestion` (load via ToolSearch if not available):
+   Created:
+     .pipelines/  (<N> role files, <M> pipeline definitions)
+     scripts/policy/  (<K> validation scripts)
+     CLAUDE.md  (starter — edit before your first run)
+     .gitignore  updated
 
-- **Question:** `Project initialized. Ready to start your first pipeline run?`
-- **Header:** `Next step`
-- **Options:**
-  - Label: `Yes — start a feature run` — Description: `I'll suggest /new-run feature <slug> with a slug derived from the project context.`
-  - Label: `Yes — start a bugfix run` — Description: `I'll suggest /new-run bugfix <slug>.`
-  - Label: `Not yet — let me edit CLAUDE.md and the manifest template first` — Description: `Recommended if you want to customize the project conventions before the first run.`
+   Missing pieces (you can fix any time):
+     - No docs/adr/ — ADR policy gate disabled until first ADR
+     - No tests/ directory — test-tracking will be approximate
+
+   Next step:
+     /run "short description of your first run"
+
+   IMPORTANT: if you just installed the plugin via the file-level
+   install (clone + JSON patch), restart Cowork before /run becomes
+   available in the slash-command palette.
+   ```
+
+### Step 4 — the Cowork install reality
+
+The user may be running `/pipeline-init` right after a fresh install. Two scenarios:
+
+**Scenario A — they used the file-level install (Cowork).** They cloned the repo and patched JSON files (or you/Claude did it for them). The slash commands register at session start, so the user is reading this in a fresh Cowork session AFTER restart. Everything works.
+
+**Scenario B — they used `/plugin install` (CLI with that command available).** Same outcome — the slash commands are available.
+
+If `/pipeline-init` itself doesn't appear available, the user can't be reading these instructions. So Scenario A/B is the universe; this command only runs once the plugin is loaded.
+
+What the command DOES need to flag, at end of Step 3: if the user then runs `/run` and gets "command not available," they should restart Cowork. The scaffold report's final paragraph names this.
 
 ## Hard rules
 
-- Do not modify any file outside the user's project directory and the plugin's read-only template files.
-- Do not silently overwrite existing `CLAUDE.md`, `.pipelines/`, or `scripts/policy/` if they already exist. Ask first.
-- Do not skip the orientation summary even if "it seems obvious from the inputs." Show your work.
-- Do not propose autonomous mode at any point. The plugin's defaults are explicit-gate-only.
-- If the user provides input that's malformed or contradicts itself (e.g., "PRD" but the file is empty), STOP and ask for clarification — do not improvise from defaults.
-- If the user is in a directory that already has a `.pipelines/` directory, treat as a re-init: ask whether to update the role/policy files (and which) rather than overwrite blindly.
+- Never overwrite an existing `CLAUDE.md`. If it exists, ask whether to APPEND a `## Pipeline drafter notes` section (the part the drafter needs) or skip.
+- Never overwrite an existing `.pipelines/` directory. If it exists, treat as re-init: ask whether to refresh the role files (and which) or skip.
+- Never copy any file outside the project root the user is in.
+- Never read or modify the plugin's own marketplace dir under `~/.claude/plugins/marketplaces/`.
+- Always produce an orientation summary BEFORE scaffolding. Show your reading; let the user correct it.
 
-## Output checklist
+## Greenfield handling
 
-Stage complete only when:
-- Project's working directory is identified.
-- Orientation summary was shown to the user.
-- `.pipelines/` is present in the project with the 4 expected files (feature.yaml, bugfix.yaml, manifest-template.yaml, roles/).
-- `scripts/policy/` is present with 5 expected files (__init__.py + 4 scripts).
-- `.gitignore` has `.agent-runs/` (or was created).
-- `CLAUDE.md` exists (either pre-existing or scaffolded).
-- User has been told what to do next (`/new-run feature <slug>` or similar).
+If `$ARGUMENTS` is a description paragraph (no spec file exists, no repo to read), synthesize a minimal spec inline:
+
+```
+You gave me a description but no existing spec. Synthesizing a minimal
+spec now — review and reply APPROVE to write it to SPEC.md, or `WAIT`
+if you'd rather edit it inline first.
+
+```
+[synthesized minimal spec: 1-2 paragraphs of purpose, target audience,
+core capabilities, tech-stack inferences, license]
+```
+```
+
+Once approved, write `SPEC.md` at project root and continue to Step 2 with `SPEC.md` as the read source.
+
+## Re-init handling
+
+If `.pipelines/` already exists, the project was initialized before. Send:
+
+```
+Project is already initialized (.pipelines/ exists with <N> files).
+
+Want to:
+  (a) Refresh role files from the current plugin version (useful after upgrading the plugin).
+  (b) Refresh policy scripts only.
+  (c) Refresh everything (role files + policy scripts + manifest template).
+  (d) Cancel — leave the existing setup as-is.
+
+Reply with a, b, c, or d.
+```
+
+Apply the selected option; do NOT touch the user's `.agent-runs/`, manifests, or CLAUDE.md without explicit consent.

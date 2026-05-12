@@ -1,20 +1,20 @@
 {
   "name": "agent-pipeline-claude",
-  "description": "Multi-stage agent pipeline runner for Claude Code with three human-approval gates, an automated policy stage, an independent verifier, and a resumable run log.",
+  "description": "Run multi-step Claude Code work without drift. One slash command (/run). Drafted scope contracts from your project's spec. Three human gates in chat, opt-in real-time judge, machine-checkable auto-promote.",
   "owner": {
     "name": "Scott Converse",
     "email": "sconverse@gmail.com"
   },
   "metadata": {
-    "version": "0.5.2",
+    "version": "1.0.0",
     "homepage": "https://scottconverse.github.io/agent-pipeline-claude/",
     "repository": "https://github.com/scottconverse/agent-pipeline-claude"
   },
   "plugins": [
     {
       "name": "agent-pipeline-claude",
-      "description": "Multi-stage agent pipeline runner. /pipeline-init onboards a project; /new-run + /run-pipeline orchestrate research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager. v0.2 adds the module-release pipeline. v0.3 adds the dual-AI audit-handoff discipline. v0.4 adds the judge layer — opt-in real-time action supervision in the executor stage with four verdicts (allow/block/revise/escalate). v0.5 adds single-AI hardening: critic + drift-detector stages, pre-edit fact-forcing, expanded judge classification, machine-checkable auto-promote, and strict manifest schema validation.",
-      "version": "0.5.2",
+      "description": "/run drafts a per-run scope contract from your project's spec/release-plan/scope-lock/design-notes, presents it for chat-message APPROVE, then orchestrates research → plan → execute → policy → verify → drift-detect → critique → auto-promote → manager. Three human gates (scope/plan/manager) in chat. Opt-in real-time judge (file-presence). Machine-checkable auto-promote. Cowork-first install path; CLI users supported.",
+      "version": "1.0.0",
       "source": "./",
       "author": {
         "name": "Scott Converse",
@@ -27,7 +27,9 @@
         "pipeline",
         "orchestration",
         "multi-stage",
-        "human-in-the-loop"
+        "human-in-the-loop",
+        "cowork",
+        "claude-code"
       ]
     }
   ]

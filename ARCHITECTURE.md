@@ -3,6 +3,13 @@
 How the agent-pipeline-claude plugin is organized, what runs where, and which
 artifact each stage produces.
 
+**Current version: v1.0.0.** The v1.0 release rebuilt the user-facing surface
+around four load-bearing decisions (Cowork-first, spec-aware drafting, one
+slash command, chat-native gates) while preserving every v0.5 hardening
+mechanism intact. This document describes the v1.0 architecture; the
+historical v0.5 stage names + command shapes are referenced where the v1.0
+flow is a thin orchestration change over a preserved mechanism.
+
 This document is for two audiences:
 
 1. **Operators** who want to understand what the plugin does on their
@@ -54,12 +61,22 @@ flowchart TB
     end
 
     PluginLayer -- "/pipeline-init copies into" --> ProjectLayer
-    ProjectLayer -- "/new-run + /run-pipeline produce" --> RunLayer
+    ProjectLayer -- "/run produces (v1.0); /new-run + /run-pipeline shims still work" --> RunLayer
 ```
 
 The strict separation matters: when an agent stage runs, it only sees the
 project layer and the run layer. The plugin layer is read-only template
 material; once scaffolded, your project's behavior is yours.
+
+### v1.0 surface change: one slash command, drafted manifest
+
+v0.5.2 exposed three slash commands: `/pipeline-init` for onboarding, `/new-run` to create a blank manifest, and `/run-pipeline` to orchestrate. The user hand-authored 11 manifest fields between `/new-run` and `/run-pipeline`.
+
+v1.0 collapses the run-time surface to one command: `/run "<short description>"`. Before the first pipeline stage executes, `/run` spawns a **manifest-drafter** subagent (a new role file: `.pipelines/roles/manifest-drafter.md`). The drafter walks the project root for spec, release-plan, scope-lock, design-note, ADR, `CLAUDE.md`, and ledger artifacts, then writes a populated `manifest.yaml` plus a `draft-provenance.md` audit trail. The user reviews the drafted YAML in chat and replies `APPROVE` to start the pipeline.
+
+The mechanism downstream of the manifest gate is unchanged from v0.5.2. The drafter is a pre-stage that produces the manifest the existing manifest-gate consumes.
+
+The legacy `/new-run` and `/run-pipeline` commands survive in v1.0 as deprecated shims (they print a notice and offer to delegate to `/run`) and will be removed at v1.1.
 
 ---
 
@@ -72,7 +89,8 @@ fresh subagent per stage.
 
 ```mermaid
 flowchart TB
-    Start([User runs /new-run feature my-task]) --> M[manifest<br/>role: human]
+    Start([User runs /run &quot;short description&quot;]) --> D[manifest-drafter<br/>role: pre-stage subagent<br/>reads project spec/release-plan/scope-lock]
+    D -- draft --> M[manifest gate<br/>role: human<br/>chat-message APPROVE]
     M -- APPROVE --> R[research<br/>role: researcher<br/>artifact: research.md]
     R --> P[plan<br/>role: planner<br/>artifact: plan.md]
     P -- APPROVE --> TW[test-write<br/>role: test-writer<br/>artifact: failing-tests-report.md]
@@ -177,11 +195,11 @@ sequenceDiagram
     participant FS as .agent-runs/&lt;run-id&gt;/
 
     Note over U,FS: GATE 1 — manifest
-    U->>O: /new-run feature my-task
+    U->>O: /run "my-task description"
     O->>FS: write manifest.yaml skeleton
-    O-->>U: "Fill in manifest, then re-invoke /run-pipeline"
+    O-->>U: drafter walks project; shows drafted manifest in chat
     U->>FS: edit manifest.yaml
-    U->>O: /run-pipeline feature 2026-05-09-my-task
+    U->>O: APPROVE  (chat-message reply continues the same /run invocation)
     O->>U: AskUserQuestion: APPROVE manifest?
     U->>O: APPROVE
     O->>FS: append run.log: manifest COMPLETE
@@ -216,7 +234,7 @@ sequenceDiagram
 
 If the user types anything other than `APPROVE` at any gate, the
 orchestrator writes `BLOCKED` to `run.log` and stops. Re-invoking the
-same `/run-pipeline` later resumes from the next non-`COMPLETE` stage.
+same `/run resume <run-id>` later resumes from the next non-`COMPLETE` stage.
 The log is the resume key.
 
 ---
@@ -554,21 +572,26 @@ agent-pipeline-claude/                        # the plugin
 ├── docs/
 │   └── index.html                       # GitHub Pages landing page
 ├── commands/
+│   ├── run.md                           # /run logic (v1.0 entry point: drafts manifest + orchestrates)
 │   ├── pipeline-init.md                 # /pipeline-init logic
-│   ├── new-run.md                       # /new-run logic
-│   └── run-pipeline.md                  # /run-pipeline logic (orchestrator)
+│   ├── new-run.md                       # DEPRECATED v1.0 shim; removed at v1.1
+│   ├── run-pipeline.md                  # DEPRECATED v1.0 shim; removed at v1.1
+│   └── audit-init.md                    # /audit-init logic (v0.3 dual-AI scaffold)
 ├── pipelines/
 │   ├── feature.yaml                     # 8-stage feature flow
 │   ├── bugfix.yaml                      # 7-stage bugfix flow
 │   ├── manifest-template.yaml           # blank skeleton
 │   ├── action-classification.yaml       # v0.4 — opt-in judge layer rules
 │   └── roles/
+│       ├── manifest-drafter.md          # v1.0 — drafts manifest from project spec
 │       ├── researcher.md                # surfaces director decisions
 │       ├── planner.md                   # produces plan.md §1-7
 │       ├── test-writer.md               # writes failing tests only
-│       ├── executor.md                  # makes tests green
+│       ├── executor.md                  # makes tests green; v0.5 pre-edit fact-forcing
 │       ├── verifier.md                  # independent fresh-context check
-│       ├── manager.md                   # PROMOTE/BLOCK/REPLAN decision
+│       ├── drift-detector.md            # v0.5 — manifest contract vs assembled state
+│       ├── critic.md                    # v0.5 — adversarial cold read, six lenses
+│       ├── manager.md                   # PROMOTE/BLOCK/REPLAN; auto-promote-aware
 │       └── judge.md                     # v0.4 — per-action real-time verdict
 └── scripts/
     ├── __init__.py
@@ -595,7 +618,7 @@ After `/pipeline-init`, your project gets:
 │   ├── check_no_todos.py
 │   ├── check_adr_gate.py
 │   └── run_all.py
-└── .agent-runs/                         # gitignored, created on first /new-run
+└── .agent-runs/                         # gitignored, created on first /run
     └── <run-id>/
         ├── manifest.yaml
         ├── research.md
@@ -634,7 +657,7 @@ Anti-patterns to avoid:
   manager's verdict becomes meaningless.
 - Editing the manifest mid-run. The orchestrator treats the manifest as
   immutable; if it needs to change, the manager returns REPLAN and you
-  re-issue `/new-run`.
+  re-issue `/run` (or `/new-run` if using the v0.5.x legacy shim).
 - Adding a stage that produces multiple artifacts. The pipeline's resume
   logic and the verifier's input both depend on one-artifact-per-stage.
 - Removing the manifest, plan, or manager gates. The plugin is built
@@ -682,23 +705,24 @@ sequenceDiagram
     CC->>U: ask: PRD / repo / description?
     U->>CC: PRD path or repo URL or description
     CC->>Proj: scaffold .pipelines/, scripts/policy/, CLAUDE.md
-    CC->>U: orientation summary; suggest /new-run
+    CC->>U: orientation summary; suggest /run
 
-    U->>CC: /new-run feature my-task
-    CC->>Plugin: read commands/new-run.md
-    CC->>Runs: create dir + manifest.yaml skeleton
-    CC->>U: display manifest; instruct to fill in
-    U->>Runs: edit manifest.yaml
+    U->>CC: /run "short description"
+    CC->>Plugin: read commands/run.md
+    CC->>CC: spawn manifest-drafter subagent (pre-stage)
+    CC->>Proj: drafter walks spec/release-plan/scope-lock/CLAUDE.md/...
+    CC->>Runs: create dir; drafter writes manifest.yaml + draft-provenance.md
+    CC->>U: chat-message: drafted manifest + one-line provenance summary
+    U->>CC: APPROVE (or REPLAN with changes)
 
-    U->>CC: /run-pipeline feature 2026-05-09-my-task
-    CC->>Plugin: read commands/run-pipeline.md
-    loop for each stage
+    loop for each stage in pipeline YAML
         CC->>Runs: read run.log to find resume point
-        alt human gate
-            CC->>U: AskUserQuestion: APPROVE?
-            U->>CC: APPROVE or block
+        alt human gate (plan or manager)
+            CC->>U: chat-message: stage summary + open questions
+            U->>CC: APPROVE / REPLAN <changes> / BLOCK
         else policy stage
             CC->>Proj: bash scripts/policy/run_all.py
+            note over CC,Runs: failure -> standard failure shape with remediation
         else agent stage
             CC->>Plugin: read role file
             CC->>CC: spawn subagent with role + context
@@ -706,7 +730,7 @@ sequenceDiagram
         end
         CC->>Runs: append run.log line
     end
-    CC->>U: pipeline complete; show manager decision
+    CC->>U: pipeline complete; show manager decision (or auto-PROMOTED)
 ```
 
 ---

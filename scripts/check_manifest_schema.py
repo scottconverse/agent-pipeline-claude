@@ -78,7 +78,7 @@ def _read_manifest(manifest_path: Path) -> dict[str, object]:
     Scalar values are str.
     """
     if not manifest_path.exists():
-        print(f"check_manifest_schema: FAIL — manifest not found at {manifest_path}", file=sys.stderr)
+        print(f"check_manifest_schema: FAIL -- manifest not found at {manifest_path}", file=sys.stderr)
         sys.exit(1)
 
     text = manifest_path.read_text(encoding="utf-8")
@@ -149,52 +149,126 @@ def _is_broad_prefix(prefix: str) -> bool:
     return bool(BROAD_PREFIX_PATTERN.fullmatch(normalized))
 
 
-def _check(fields: dict[str, object]) -> list[str]:
-    """Apply schema rules. Return a list of violation strings (empty = pass)."""
-    violations: list[str] = []
+def _check(fields: dict[str, object]) -> list[dict[str, str]]:
+    """Apply schema rules. Return a list of violation dicts (empty = pass).
+
+    Each violation has keys:
+      - field:   the manifest field that failed
+      - problem: one-sentence what's wrong
+      - current: short repr of the current value (or "<missing>")
+      - suggest: one concrete next action the operator can take
+    """
+    violations: list[dict[str, str]] = []
 
     goal = fields.get("goal")
     if not isinstance(goal, str) or len(goal.strip()) < MIN_GOAL_CHARS:
+        actual_len = len(goal.strip()) if isinstance(goal, str) else 0
         violations.append(
-            f"`goal` is missing, empty, or under {MIN_GOAL_CHARS} characters — fuzzy goal produces fuzzy downstream work."
+            {
+                "field": "goal",
+                "problem": f"too short ({actual_len} chars; minimum {MIN_GOAL_CHARS})",
+                "current": _short_repr(goal),
+                "suggest": (
+                    "describe what the work produces for the user, citing the spec or design note. "
+                    "Example: \"Fix the 409 conflict-race on schedule update when the conflicting "
+                    "item is cancelled mid-lookup (QA-005).\""
+                ),
+            }
         )
     else:
         for word in FORBIDDEN_STATUS_WORDS:
             if re.search(rf"\b{re.escape(word)}\b", goal, re.IGNORECASE):
                 violations.append(
-                    f"`goal` contains forbidden status word `{word}` — manifests must not import release-gate semantics into a non-release run."
+                    {
+                        "field": "goal",
+                        "problem": f"contains forbidden status word '{word}'",
+                        "current": _short_repr(goal),
+                        "suggest": (
+                            f"replace '{word}' with a descriptive verb. Manifests must not import "
+                            "release-gate semantics into a non-release run."
+                        ),
+                    }
                 )
 
     dod = fields.get("definition_of_done")
     if not isinstance(dod, str) or len(dod.strip()) < MIN_DOD_CHARS:
+        actual_len = len(dod.strip()) if isinstance(dod, str) else 0
         violations.append(
-            f"`definition_of_done` is missing, empty, or under {MIN_DOD_CHARS} characters — the verifier and critic need a paragraph to evaluate against."
+            {
+                "field": "definition_of_done",
+                "problem": f"too short ({actual_len} chars; minimum {MIN_DOD_CHARS})",
+                "current": _short_repr(dod),
+                "suggest": (
+                    "write one paragraph naming the precise bar the work clears, citing tests, "
+                    "specs, or CI gates. The verifier compares the final state to this paragraph "
+                    "line-by-line."
+                ),
+            }
         )
     else:
         for word in FORBIDDEN_STATUS_WORDS:
             if re.search(rf"\b{re.escape(word)}\b", dod, re.IGNORECASE):
                 violations.append(
-                    f"`definition_of_done` contains forbidden status word `{word}` — see goal rule."
+                    {
+                        "field": "definition_of_done",
+                        "problem": f"contains forbidden status word '{word}'",
+                        "current": _short_repr(dod),
+                        "suggest": f"replace '{word}' with a descriptive bar (see goal rule).",
+                    }
                 )
 
     expected_outputs = fields.get("expected_outputs")
     if not isinstance(expected_outputs, list) or len(expected_outputs) < 1:
         violations.append(
-            "`expected_outputs` is empty — the verifier has no objective check without at least one testable output."
+            {
+                "field": "expected_outputs",
+                "problem": "empty list",
+                "current": "[]",
+                "suggest": (
+                    "add at least one testable output: a file path that must exist, a passing "
+                    "test name, a function/class that must be defined, or an HTTP endpoint that "
+                    "must respond 2xx."
+                ),
+            }
         )
     elif any(not (isinstance(item, str) and item.strip()) for item in expected_outputs):
-        violations.append("`expected_outputs` contains an empty entry.")
+        violations.append(
+            {
+                "field": "expected_outputs",
+                "problem": "contains an empty entry",
+                "current": _short_repr(expected_outputs),
+                "suggest": "remove the empty entry, or replace it with a real expected output.",
+            }
+        )
 
     non_goals = fields.get("non_goals")
     if not isinstance(non_goals, list) or len(non_goals) < 1:
         violations.append(
-            "`non_goals` is empty — explicit out-of-scope items keep the executor honest. Add at least one."
+            {
+                "field": "non_goals",
+                "problem": "empty list",
+                "current": "[]",
+                "suggest": (
+                    "add at least one explicit out-of-scope item -- e.g. \"Operator UI changes "
+                    "(Slice 2)\" or \"Schema migrations (release-engineer only).\" Non-goals are "
+                    "what keeps the executor from drifting."
+                ),
+            }
         )
 
     rollback_plan = fields.get("rollback_plan")
     if not isinstance(rollback_plan, str) or not rollback_plan.strip():
         violations.append(
-            "`rollback_plan` is empty — every run must name how a revert would happen, even if it is `git revert <merge-commit>`."
+            {
+                "field": "rollback_plan",
+                "problem": "empty",
+                "current": "\"\"",
+                "suggest": (
+                    "name how a revert would happen. For pure code changes: \"git revert "
+                    "<commit-sha>; no schema migration.\" For schema changes: name the "
+                    "down-migration explicitly."
+                ),
+            }
         )
 
     allowed_paths = fields.get("allowed_paths")
@@ -205,17 +279,38 @@ def _check(fields: dict[str, object]) -> list[str]:
         if not isinstance(forbidden_paths, list) or len(forbidden_paths) < 1:
             broad = [p for p in allowed_paths if isinstance(p, str) and _is_broad_prefix(p)]
             violations.append(
-                "`allowed_paths` includes a broad top-level prefix "
-                f"({', '.join(broad)}) but `forbidden_paths` is empty. "
-                "Add explicit forbidden_paths to bound the blast radius."
+                {
+                    "field": "forbidden_paths",
+                    "problem": (
+                        f"empty, but allowed_paths includes broad prefix(es) "
+                        f"({', '.join(broad)})"
+                    ),
+                    "current": "[]",
+                    "suggest": (
+                        "add explicit forbidden_paths to bound the blast radius. Common entries: "
+                        "\"docs/adr/\" (ADRs are append-only -- new ADRs are fine, modifying "
+                        "existing ones is not), the project's version file (release-engineer only), "
+                        "\".github/workflows/\" (CI changes need their own scope)."
+                    ),
+                }
             )
 
     return violations
 
 
+def _short_repr(value: object, max_len: int = 80) -> str:
+    """Render a value short enough to fit on one line of an error message."""
+    if value is None:
+        return "<missing>"
+    text = repr(value)
+    if len(text) > max_len:
+        return text[: max_len - 1] + "…"
+    return text
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", action="version", version="agent-pipeline-claude 0.5.2")
+    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.0.0")
     parser.add_argument(
         "--run",
         help="Pipeline run id (directory under .agent-runs/). Without this, the check is a no-op.",
@@ -233,15 +328,28 @@ def main() -> int:
     violations = _check(fields)
 
     if violations:
-        print("check_manifest_schema: FAIL")
-        print(f"  manifest: {manifest_path}")
-        print("  violations:")
-        for v in violations:
-            print(f"    - {v}")
+        # v1.0 error shape: every violation surfaces with what / where /
+        # current / suggestion, so the orchestrator can translate
+        # directly into the standard chat-message failure shape without
+        # post-processing.
+        print("Manifest validation FAILED.")
+        print(f"  Manifest: {manifest_path.relative_to(REPO_ROOT)}")
+        print(f"  Violations: {len(violations)}")
+        print()
+        for i, v in enumerate(violations, start=1):
+            print(f"  [{i}/{len(violations)}] Field: {v['field']}")
+            print(f"        Problem: {v['problem']}")
+            print(f"        Current: {v['current']}")
+            print(f"        Suggestion: {v['suggest']}")
+            print()
+        print(
+            f"  Edit {manifest_path.relative_to(REPO_ROOT)} to fix the violations above,"
+        )
+        print(f"  then re-run /run resume {args.run}.")
         return 1
 
     print(
-        f"check_manifest_schema: PASS — manifest at {manifest_path.relative_to(REPO_ROOT)} satisfies the v0.5 schema."
+        f"check_manifest_schema: PASS -- manifest at {manifest_path.relative_to(REPO_ROOT)} satisfies the v1.0 schema."
     )
     return 0
 
