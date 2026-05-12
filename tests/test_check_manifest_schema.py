@@ -77,7 +77,7 @@ class TestVersionFlag:
     not stale v0.5.x copies from an earlier /pipeline-init.
     """
 
-    def test_version_reports_1_1_0(self) -> None:
+    def test_version_reports_1_1_1(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SCHEMA_SCRIPT), "--version"],
             capture_output=True,
@@ -85,7 +85,7 @@ class TestVersionFlag:
             check=False,
         )
         assert result.returncode == 0
-        assert "agent-pipeline-claude 1.1.0" in result.stdout
+        assert "agent-pipeline-claude 1.1.1" in result.stdout
 
 
 # ---------------------------------------------------------------------------

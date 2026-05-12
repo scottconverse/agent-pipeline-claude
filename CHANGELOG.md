@@ -5,6 +5,43 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-05-12
+
+**Honest fix to the v1.1.0 cleanroom test gap.**
+
+v1.1.0 shipped a `tests/test_cleanroom_install.py` suite that asserted the plugin LOADS in a cleanroom copy. After release, Scott asked the right question:
+
+> "Did the cleanroom REALLY test the pipeline? Wouldn't it make sense to do it with a real repo (or a mocked up real repo) like you did with the handoff skill before?"
+
+He's right. v1.1.0's cleanroom test is a **load test**, not a **use test**. The three tests it added all assert "plugin loads, manifest validates, structure intact" — none of them actually invoke a single skill. If `/agent-pipeline-claude:pipeline-init` were broken — scaffolded to the wrong path, or hung at orientation, or no-op'd — every v1.1.0 "cleanroom" test would still pass. Same regression-class one tier up: v1.0.0/v1.0.1 passed unit tests but didn't load; v1.1.0 cleanroom-load passes but doesn't exercise.
+
+v1.1.1 closes this with a new opt-in test tier.
+
+### Added
+
+- **`tests/test_cleanroom_smoke.py`** — `@pytest.mark.cleanroom_e2e`. Copies the plugin to `tmp_path/plugin/` (no `.git`, no caches), scaffolds a minimum-viable fixture project to `tmp_path/project/` (README.md + CLAUDE.md + HANDOFF.md), then runs `claude --plugin-dir <plugin> -p` from the fixture with a two-turn flow: invoke `agent-pipeline-claude:pipeline-init`, then `APPROVE`. Asserts `.pipelines/` actually scaffolded into the fixture with 9 expected role files + 5 pipeline yamls + 5 policy scripts. **This is the layer that catches "plugin loads but skills no-op" and "skills scaffold to the wrong path"** — failures the load-only tests cannot see.
+
+  Cost: ~$0.05 in Haiku, ~60s wall. Requires `ANTHROPIC_API_KEY` + `claude` on PATH; skips otherwise.
+
+  Run with: `ANTHROPIC_API_KEY=sk-ant-... pytest tests/test_cleanroom_smoke.py -m cleanroom_e2e`
+
+- **`pytest.ini`** — registers the `cleanroom_e2e` marker so pytest doesn't warn.
+
+### Changed
+
+- **Testing taxonomy now six tiers** (was five): split Cleanroom into Cleanroom-load (free, per-commit) and Cleanroom-smoke (opt-in with API key, ~$0.05). [tests/README.md](tests/README.md) rewritten to reflect this honestly, including the gap v1.1.0 had and why it mattered.
+- **`--version` strings bumped 1.1.0 → 1.1.1** in `scripts/check_manifest_schema.py`, `scripts/auto_promote.py`, and their bundled copies under `skills/pipeline-init/references/pipeline-payload/scripts/`. Test assertion `test_version_reports_1_1_0` → `test_version_reports_1_1_1` updated to match.
+- **Manifest versions bumped 1.1.0 → 1.1.1** in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (both `metadata.version` and `plugins[0].version`).
+
+### Verified
+
+- pytest full suite: **15 passed in 4.77s** (free tier) + **1 passed in 62.42s** (cleanroom-smoke, opt-in with API key). Total 16 tests.
+- Cleanroom-smoke test produces `.pipelines/` with all 9 expected role files, all 5 pipeline yamls, all 3 templates, and `scripts/policy/` with all 5 check scripts. End-to-end against a real `claude -p` session driving a real skill.
+
+### Pipeline behavior unchanged
+
+Role files, manifest schema, scaffold contents, and runtime semantics are all v1.1.0. v1.1.1 is purely a testing-discipline release.
+
 ## [1.1.0] — 2026-05-12
 
 **Install/runtime adapter rewrite + bundled-payload merge. Pipeline behavior unchanged.**

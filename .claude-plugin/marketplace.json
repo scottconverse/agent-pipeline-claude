@@ -1,36 +1,36 @@
 {
-  "name": "agent-pipeline-claude",
-  "owner": {
-    "name": "Scott Converse",
-    "email": "sconverse@gmail.com"
-  },
-  "metadata": {
-    "description": "Run multi-step Claude Code work without drift. One namespaced skill (/agent-pipeline-claude:run). Drafted scope contracts from your project's spec. Three human gates in chat, opt-in real-time judge, machine-checkable auto-promote.",
-    "version": "1.1.0",
-    "homepage": "https://scottconverse.github.io/agent-pipeline-claude/",
-    "repository": "https://github.com/scottconverse/agent-pipeline-claude"
-  },
-  "plugins": [
-    {
-      "name": "agent-pipeline-claude",
-      "description": "/agent-pipeline-claude:run drafts a per-run scope contract from your project's spec/release-plan/scope-lock/design-notes, presents it for chat-message APPROVE, then orchestrates research → plan → execute → policy → verify → drift-detect → critique → auto-promote → manager. Three human gates (scope/plan/manager) in chat. Opt-in real-time judge (file-presence). Machine-checkable auto-promote.",
-      "version": "1.1.0",
-      "source": "./",
-      "author": {
-        "name": "Scott Converse",
-        "email": "sconverse@gmail.com"
-      },
-      "license": "Apache-2.0",
-      "homepage": "https://scottconverse.github.io/agent-pipeline-claude/",
-      "keywords": [
-        "agent",
-        "pipeline",
-        "orchestration",
-        "multi-stage",
-        "human-in-the-loop",
-        "cowork",
-        "claude-code"
-      ]
-    }
-  ]
+   "metadata" : {
+      "description" : "Run multi-step Claude Code work without drift. One namespaced skill (/agent-pipeline-claude:run). Drafted scope contracts from your project's spec. Three human gates in chat, opt-in real-time judge, machine-checkable auto-promote.",
+      "homepage" : "https://scottconverse.github.io/agent-pipeline-claude/",
+      "repository" : "https://github.com/scottconverse/agent-pipeline-claude",
+      "version" : "1.1.1"
+   },
+   "name" : "agent-pipeline-claude",
+   "owner" : {
+      "email" : "sconverse@gmail.com",
+      "name" : "Scott Converse"
+   },
+   "plugins" : [
+      {
+         "author" : {
+            "email" : "sconverse@gmail.com",
+            "name" : "Scott Converse"
+         },
+         "description" : "/agent-pipeline-claude:run drafts a per-run scope contract from your project's spec/release-plan/scope-lock/design-notes, presents it for chat-message APPROVE, then orchestrates research → plan → execute → policy → verify → drift-detect → critique → auto-promote → manager. Three human gates (scope/plan/manager) in chat. Opt-in real-time judge (file-presence). Machine-checkable auto-promote.",
+         "homepage" : "https://scottconverse.github.io/agent-pipeline-claude/",
+         "keywords" : [
+            "agent",
+            "pipeline",
+            "orchestration",
+            "multi-stage",
+            "human-in-the-loop",
+            "cowork",
+            "claude-code"
+         ],
+         "license" : "Apache-2.0",
+         "name" : "agent-pipeline-claude",
+         "source" : "./",
+         "version" : "1.1.1"
+      }
+   ]
 }

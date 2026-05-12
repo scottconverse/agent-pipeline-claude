@@ -1,21 +1,21 @@
 {
-  "name": "agent-pipeline-claude",
-  "version": "1.1.0",
-  "description": "Run multi-step Claude Code work without drift. Plugin reads your project's spec and drafts a per-run scope contract; you APPROVE in chat. Then research → plan → execute → verify → critique runs end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote. One namespaced skill (/agent-pipeline-claude:run); no YAML to hand-author.",
-  "author": {
-    "name": "Scott Converse",
-    "email": "sconverse@gmail.com"
-  },
-  "license": "Apache-2.0",
-  "homepage": "https://github.com/scottconverse/agent-pipeline-claude",
-  "repository": "https://github.com/scottconverse/agent-pipeline-claude.git",
-  "keywords": [
-    "agent",
-    "pipeline",
-    "orchestration",
-    "multi-stage",
-    "human-in-the-loop",
-    "cowork",
-    "claude-code"
-  ]
+   "author" : {
+      "email" : "sconverse@gmail.com",
+      "name" : "Scott Converse"
+   },
+   "description" : "Run multi-step Claude Code work without drift. Plugin reads your project's spec and drafts a per-run scope contract; you APPROVE in chat. Then research → plan → execute → verify → critique runs end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote. One namespaced skill (/agent-pipeline-claude:run); no YAML to hand-author.",
+   "homepage" : "https://github.com/scottconverse/agent-pipeline-claude",
+   "keywords" : [
+      "agent",
+      "pipeline",
+      "orchestration",
+      "multi-stage",
+      "human-in-the-loop",
+      "cowork",
+      "claude-code"
+   ],
+   "license" : "Apache-2.0",
+   "name" : "agent-pipeline-claude",
+   "repository" : "https://github.com/scottconverse/agent-pipeline-claude.git",
+   "version" : "1.1.1"
 }

@@ -4,17 +4,18 @@ Test surface for `agent-pipeline-claude` v1.1.0+.
 
 ## Testing taxonomy
 
-Five layers, ordered by cost and depth:
+Six layers, ordered by cost and depth:
 
 | Layer | What it proves | Runtime | API spend | When it runs |
 |---|---|---|---|---|
 | **Static** | Manifests well-formed; shell/Python syntax OK | ms | $0 | every commit (CI) |
 | **Unit** | Policy scripts behave correctly on synthetic input | seconds | $0 | every commit (CI) |
-| **Smoke** | Plugin's skills are self-contained when copied to an installed-cache shape | seconds | $0 | every commit (CI) |
-| **Cleanroom** | Plugin loads from a fresh copy (no `.git`, no caches, no host config) via `claude --plugin-dir` | seconds | $0 | every commit (CI) |
-| **End-to-end** | Full `/run` orchestrates research → … → manager against a fixture | minutes | ~$2/run (Haiku) | tags + nightly |
+| **Smoke (in-tree)** | Plugin's skills are self-contained when copied to an installed-cache shape | seconds | $0 | every commit (CI) |
+| **Cleanroom — load** | Plugin loads from a fresh copy (no `.git`, no caches, no host config) via `claude --plugin-dir` | seconds | $0 | every commit (CI) |
+| **Cleanroom — smoke** | The FIRST skill actually executes against a fresh fixture (`/pipeline-init` scaffolds `.pipelines/` end-to-end) | ~60s | ~$0.05 (Haiku) | opt-in / pre-release |
+| **End-to-end** | Full `/run` orchestrates research → … → manager against a fixture | minutes | ~$2 Haiku / ~$15 Sonnet | tags + nightly |
 
-Each layer catches a different failure class. The cleanroom tier specifically guards against the v1.0.0 / v1.0.1 regression where the plugin passed unit tests + manifest validation in isolation but the loader silently rejected the install layout — that bug is exactly the failure mode `tests/test_cleanroom_install.py` catches now.
+Each layer catches a different failure class. **Cleanroom-load** catches the v1.0.0/v1.0.1 regression (manifest passed unit tests but loader silently rejected the install). **Cleanroom-smoke** is the layer that catches one tier up: plugin loads but skills no-op, scaffold to the wrong path, or hang at orientation. The v1.1.0 cleanroom-load test ships proved the plugin loads; v1.1.1's cleanroom-smoke test proves the plugin **works**.
 
 ### Static
 
@@ -33,16 +34,38 @@ Each layer catches a different failure class. The cleanroom tier specifically gu
 
 Smoke + Static together catch "manifest valid in isolation, but loader rejects layout" regressions.
 
-### Cleanroom
+### Cleanroom — load (per commit, $0)
 
 - **`tests/test_cleanroom_install.py`** — three tests against a fresh copy of the plugin in an isolated `tmp_path/agent-pipeline-claude/` (no `.git`, no `__pycache__`, no `.agent-runs/`, no `installed_plugins.json` entries):
   1. `test_cleanroom_install_loads_via_plugin_dir` — runs `claude --plugin-dir <copy> plugin list` and asserts the plugin shows up with `Status: ✔ loaded` and the manifest-declared version.
   2. `test_cleanroom_install_validates` — runs `claude plugin validate` against both manifests in the cleanroom copy.
   3. `test_cleanroom_install_structure_check` — runs `check_plugin_structure.py` from inside the cleanroom copy as cwd.
 
-Cleanroom is the highest-leverage automated tier. It catches every install-path regression unit tests + dev-clone smoke tests would miss. The v1.0.0 / v1.0.1 schema bug would have failed cleanroom but not the original unit tests — exactly the gap this layer closes.
+These three skip gracefully if `claude` isn't on PATH (via `pytest.skip`). They catch the v1.0.0 / v1.0.1 schema-rejection regression class — manifest validates in isolation but the loader rejects the layout.
 
-Cleanroom tests skip gracefully if `claude` isn't on PATH (via `pytest.skip`).
+**Honest gap (v1.1.0 had this; v1.1.1 closes it):** load-only cleanroom proves the plugin shows `✔ loaded` and the manifest validates. It does NOT prove any skill actually does anything. That's what the next tier is for.
+
+### Cleanroom — smoke (opt-in, ~$0.05, ~60s)
+
+- **`tests/test_cleanroom_smoke.py`** — `@pytest.mark.cleanroom_e2e`:
+  - Copies the plugin source to `tmp_path/plugin/` (no `.git`, no caches).
+  - Scaffolds a minimum-viable fixture project to `tmp_path/project/` (README.md + CLAUDE.md + HANDOFF.md + empty `docs/`).
+  - Runs `claude --plugin-dir <tmp_path/plugin> -p` from the fixture, two turns: invoke `agent-pipeline-claude:pipeline-init`, then `APPROVE`.
+  - Asserts the fixture now contains `.pipelines/` with 9 expected role files + 5 pipeline yamls + 5 policy scripts.
+
+This is the layer that catches "plugin loads but skills no-op" and "skills scaffold to the wrong path" — failures the load-only tests cannot see. Cost: ~$0.05 in Haiku, ~60s wall. Requires `ANTHROPIC_API_KEY` in env and `claude` on PATH; skips otherwise.
+
+Run with:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... pytest tests/test_cleanroom_smoke.py -m cleanroom_e2e
+```
+
+Or run the whole suite (this test skips without an API key):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... pytest tests/
+```
 
 ### End-to-end
 
