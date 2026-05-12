@@ -1,9 +1,23 @@
-# agent-pipeline-claude — User Manual
+# agent-pipeline-claude -- User Manual
 
-A Claude Code plugin that orchestrates multi-stage agentic work with three human-approval gates. Built from real lessons across multi-week agent projects where autonomous runs go wrong silently and "manager-PROMOTE" failures slip past CI.
+Ship multi-step Claude Code work that doesn't drift. The plugin reads your project's spec, drafts a per-run scope contract, and asks you to APPROVE in chat. Then it runs research -> plan -> execute -> verify -> critique end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote.
 
-**Version:** 0.5.2
+**Version:** 1.0.0
 **License:** Apache 2.0
+
+---
+
+## What's new in v1.0 (read first if you used v0.5.x)
+
+v1.0 keeps every v0.5 hardening guarantee and changes the surface around them. If you used v0.5.x:
+
+- **One command, not three.** `/run "<short description>"` replaces `/new-run` + `/run-pipeline`. The old commands still work in v1.0 as deprecated shims that print a notice and offer to delegate; they will be removed at v1.1.
+- **The manifest is drafted from your project's spec.** You review YAML in chat and reply `APPROVE`. You no longer hand-author 11 fields from blank.
+- **Human gates are chat messages, not modal popups.** Three universal verbs: `APPROVE` accept, `REPLAN <description>` revise, `BLOCK` halt (manager gate only).
+- **Install path documents Cowork.** v0.5.x's `/plugin install ...` was CLI-only. v1.0 leads with a Cowork-friendly bootstrap prompt; CLI remains supported.
+- **Failure messages have remediation pointers.** Schema rejections now say what's wrong, where, the current value, what to do about it, and which file to edit + which command to re-run.
+
+If you're upgrading, see [CHANGELOG.md](CHANGELOG.md) § "Migration from v0.5.x" for the five-step upgrade.
 
 ---
 
@@ -73,35 +87,60 @@ Six generic policy checks (Python, stdlib only):
 
 ## Installation
 
-### As a Claude Code plugin (recommended)
+The plugin works in **Cowork** (the chat-first Claude Code surface) and in **Claude Code CLI** if your build has `/plugin` available. Cowork is the primary supported path because many Claude Code users don't have a CLI.
 
-```bash
-# One-time install — available across all projects
+### Cowork (primary install path)
+
+Paste this prompt into any Claude session in any project. The agent will do the file-level install (clone the marketplace + patch three JSON config files):
+
+```
+Install the agent-pipeline-claude plugin for me.
+
+Method: clone https://github.com/scottconverse/agent-pipeline-claude
+into ~/.claude/plugins/marketplaces/agent-pipeline-claude. Add an
+agent-pipeline-claude marketplace entry to ~/.claude/plugins/known_marketplaces.json
+pointing at that path. Add agent-pipeline-claude@agent-pipeline-claude to
+~/.claude/plugins/installed_plugins.json with the cloned commit SHA.
+In ~/.claude/settings.json, set
+enabledPlugins["agent-pipeline-claude@agent-pipeline-claude"] = true and add
+the marketplace to extraKnownMarketplaces. If an older
+agentic-pipeline@agentic-pipeline entry exists, set it to false.
+
+Back up settings.json + known_marketplaces.json + installed_plugins.json
+before patching. After install, tell me to restart Cowork (or my CLI)
+to load the new slash commands.
+```
+
+After the agent finishes, **restart your Cowork session**. Slash commands register at session start; they will not appear in the session that did the install. After restart, `/pipeline-init` and `/run` appear in the command palette.
+
+### Claude Code CLI (if `/plugin install` is available)
+
+```
 /plugin install scottconverse/agent-pipeline-claude
 ```
 
-### Manual install (local clone)
-
-If your Claude Code setup uses a plugins config in `~/.claude/settings.json` or `.claude/settings.json`:
-
-```bash
-git clone https://github.com/scottconverse/agent-pipeline-claude.git ~/agent-pipeline-claude-plugin
-```
-
-Then add the path to your settings (consult the Claude Code docs for the current plugin-registration syntax — varies by version).
+Then restart your terminal session.
 
 ### Verifying which release is installed
 
-Two of the v0.5 policy scripts ship a `--version` flag for sanity-checking the install:
+The policy scripts ship a `--version` flag for sanity-checking the install. From your project root after running `/pipeline-init`:
 
 ```bash
-python scripts/policy/auto_promote.py --version
 python scripts/policy/check_manifest_schema.py --version
+python scripts/policy/auto_promote.py --version
 ```
 
-Each prints `agent-pipeline-claude 0.5.1` and exits 0. The flag fires before any other argument validation, so it works on `auto_promote.py` without supplying `--run`. Use it to confirm a project actually has the v0.5 scripts and not stale copies from an earlier `/pipeline-init`.
+Each prints `agent-pipeline-claude 1.0.0` and exits 0. The flag works without `--run`. Use it to confirm a project actually has the v1.0 scripts and not stale copies from an earlier `/pipeline-init`.
 
-If the script doesn't recognize `--version` (argparse prints a usage error and exits 2), the install is pre-v0.5. Re-run `/pipeline-init` to refresh the scripts from the plugin source.
+If the script prints an older version (`0.5.2` or earlier), re-run `/pipeline-init` and choose "refresh policy scripts only" to bring the project up to date with the plugin's current version.
+
+### What if `/run` doesn't appear in the command palette after install?
+
+Three things to check, in order:
+
+1. **Did you restart your session?** Cowork and CLI both load plugins at session start. Close the window, open a new one in the same project, and try again.
+2. **Is the plugin enabled?** Check `~/.claude/settings.json` -- `enabledPlugins["agent-pipeline-claude@agent-pipeline-claude"]` should be `true`. If you upgraded from v0.5.x and see `"agentic-pipeline@agentic-pipeline"` enabled instead, both are present; disable the old one (set to `false`) to avoid command-name collisions.
+3. **Did the install actually clone the repo?** Check `~/.claude/plugins/marketplaces/agent-pipeline-claude/` exists and contains `commands/run.md`. If not, the install never completed; re-run the bootstrap prompt above.
 
 ## Onboarding a project
 
@@ -145,17 +184,69 @@ You have an idea — a paragraph or two describing what you want to build. The p
 
 ## Running a pipeline
 
-Once onboarded, every piece of agent work follows the same shape: define what you're doing, let the pipeline orchestrate it, approve or reject at three checkpoints.
+Once onboarded, every piece of agent work follows the same shape: type one slash command, review a drafted scope contract, approve or reject at three checkpoints.
 
-### Step 1 — Initialize a run
+### The v1.0 way -- `/run`
+
+```
+/run "add a search endpoint to the public API"
+```
+
+That's the whole command. What happens:
+
+1. **Drafter reads your project.** The manifest-drafter walks for spec / release-plan / scope-lock / design-notes / ADRs / `CLAUDE.md` / ledgers. Takes a few seconds for most projects.
+2. **You see the drafted manifest in chat.** Around 60 lines of YAML in a fenced code block. Each auto-derived field has a `# drafted from <source>` comment so you can see what came from where. A one-line summary at top reports source files used.
+3. **You reply with one of three verbs:**
+   - `APPROVE` -- start the run.
+   - `<freeform changes>` -- revise the draft and re-show. Up to 5 cycles, then falls back to hand-edit.
+   - `READY` -- only valid after you've hand-edited the file directly; re-validates and proceeds.
+4. **Pipeline orchestrates the rest.** Research -> plan (human gate) -> execute -> policy -> verify -> drift-detect -> critique -> auto-promote -> manager (human gate, or auto-fires when six conditions pass).
+5. **Final report.** Run id, final disposition (PROMOTED / BLOCKED / NEEDS_REPLAN), stage count, duration, suggested next step (PR, tag, etc.). All artifacts in `.agent-runs/<run-id>/`.
+
+### Resuming a halted run
+
+```
+/run resume 2026-05-11-add-search-endpoint
+```
+
+The orchestrator reads `run.log`, finds the last completed stage, and picks up at the next stage. Use this when:
+
+- You hit a human gate and replied `BLOCK` to take a closer look; now you want to continue.
+- The pipeline failed mid-stage and you fixed the underlying issue (e.g., manifest schema error).
+- You closed your Cowork session mid-run and want to pick up where you left off.
+
+### Listing runs
+
+```
+/run status
+```
+
+Lists the most recent 10 runs in the project with last-stage status. Same as typing `/run` with no arguments.
+
+### Pipeline type selection
+
+`/run` defaults to the `feature` pipeline. Override with keywords in your description:
+
+- "bug" / "fix" / "regression" -> `bugfix` pipeline.
+- "release" / "ship" / "tag" / "module-release" -> `module-release` pipeline.
+
+If `/run` guesses wrong, it tells you what it guessed and lets you correct in the next reply.
+
+### The v0.5.x way (deprecated)
+
+The old two-step `/new-run feature <slug>` + `/run-pipeline feature <run-id>` still works in v1.0 as deprecated shims. They print a deprecation notice and offer to delegate to `/run`. Both shims will be removed at v1.1; new work should use `/run`.
+
+The rest of this section describes the legacy flow for reference. Skip to "The three human gates" if you're starting fresh with v1.0.
+
+### Step 1 (legacy) -- Initialize a run
 
 ```
 /new-run feature add-search-endpoint
 ```
 
-This creates `.agent-runs/2026-05-09-add-search-endpoint/manifest.yaml` from the template. The manifest is the **contract for the entire run** — every downstream agent reads it.
+This creates `.agent-runs/2026-05-09-add-search-endpoint/manifest.yaml` from the template. The manifest is the **contract for the entire run** -- every downstream agent reads it.
 
-### Step 2 — Fill in the manifest
+### Step 2 (legacy) -- Fill in the manifest
 
 Open `.agent-runs/2026-05-09-add-search-endpoint/manifest.yaml` in your editor. The fields you fill in:
 

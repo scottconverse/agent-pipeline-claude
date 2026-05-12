@@ -3,10 +3,61 @@
 All notable changes to `agent-pipeline-claude` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-This project follows [Semantic Versioning](https://semver.org/) once it
-leaves beta. While in `0.1.x-beta`, breaking changes to slash-command
-arguments, manifest fields, or role-file contracts may land in any
-release; the `CHANGELOG` will call them out.
+This project follows [Semantic Versioning](https://semver.org/).
+
+## [1.0.0] — 2026-05-11
+
+UX rewrite. The v0.5 hardening mechanism (critic + drift-detector + judge layer + auto-promote + strict schema) is preserved unchanged; everything around it that touches a user is rebuilt around four load-bearing decisions: Cowork-first, spec-aware drafting, one command, chat-native gates.
+
+Built from a real audit run during this very session — a CivicCast operator hit "/plugin isn't available" at the install step, then "really really bad UX" at the manifest fill-in step, then asked to rewrite the plugin. v1.0 is that rewrite.
+
+### Added
+
+- **`/run` slash command** (`commands/run.md`). Single entry point replacing v0.5.2's two-step `/new-run` + `/run-pipeline`. Argument shapes: `/run "<description>"` to start, `/run resume <run-id>` to pick up, `/run status` to list. Drafts a manifest from your project's spec, presents it in chat, loops on revision, then orchestrates the pipeline end-to-end.
+- **Manifest drafter role** (`pipelines/roles/manifest-drafter.md`). A new fresh-context subagent the `/run` orchestrator invokes before any stage. The drafter walks the project root for spec / release-plan / scope-lock / design-note / ADR / ledger artifacts, then auto-derives 9 of 11 manifest fields from those sources. Writes `manifest.yaml` + `draft-provenance.md` (per-field source attribution). Returns a one-line summary string for the orchestrator's chat prompt.
+- **Spec source-walking protocol** documented in `manifest-drafter.md`. Recognizes `*UnifiedSpec*.md`, `SPEC.md`, `PRD.md`, `*ReleasePlan*.md`, `ROADMAP.md`, `docs/releases/v*-scope-lock.md`, `docs/research/<version>-design.md`, `docs/adr/*.md`, `CLAUDE.md`, `audit-*/`. Operators can also override discovery via a `## Pipeline drafter notes` section in `CLAUDE.md`.
+- **Cowork-first install instructions** in `README.md` and `USER-MANUAL.md`. A paste-able bootstrap prompt the user drops into any Claude session — Cowork or CLI — that does the file-level install (clone + JSON patches). The CLI-only `/plugin install scottconverse/agent-pipeline-claude` becomes a convenience note for users whose build has the command available.
+- **Explicit restart-required signal post-install.** Every install path ends with the user being told to restart their session before the slash commands register. v0.5.2 didn't surface this; v1.0 makes it a first-class step.
+- **Chat-native gate prompts** at the three human gates (manifest / plan / manager). Three universal verbs: `APPROVE`, `REPLAN <description>` (or freeform changes), `BLOCK` (manager gate only). Replaces v0.5.2's modal `AskUserQuestion` popups for the three gates. `AskUserQuestion` stays available for genuinely-disambiguating mid-stage questions.
+- **Failure-message shape with remediation pointers.** Every error surface — `check_manifest_schema.py` failures, missing manifests, schema-rejected drafts, stage failures — follows a standard shape: *what failed / where / current value / suggestion / full-context pointer*. No raw Python tracebacks reach the user.
+- **`commands/run.md` Step 6 five-state walkthrough.** The manifest-review screen has five explicit states (populated draft, greenfield, partial, schema-error, loading) so the orchestrator never surprises the user with an unfamiliar shape.
+
+### Changed
+
+- **`commands/pipeline-init.md` rewritten.** Now produces a one-message orientation summary first, asks for APPROVE, then scaffolds. The `CLAUDE.md` starter is shorter and explicitly includes a `## Pipeline drafter notes` section telling the drafter where this project keeps its spec / release plan / design notes / ledgers. The legacy "11-section template CLAUDE.md scaffold" is gone — projects fill in what they need.
+- **`scripts/check_manifest_schema.py` error-message rewrite.** Each violation now surfaces with field name + problem + current value + concrete suggestion, plus a footer telling the operator which file to edit and which `/run resume` command to re-trigger validation. The schema *rules* are unchanged from v0.5.2; only the human-facing output shape changed.
+- **Plugin manifests (`plugin.json` + `marketplace.json`) bumped to v1.0.0** with new short descriptions matching the redesign.
+- **README.md fully rewritten.** Journey-first ("here's what a `/run` looks like") instead of stage-list-first. Cowork-first install. Concrete examples of a drafted manifest inline. Migration story for v0.5.x users.
+- **USER-MANUAL.md updated** to match the new surface. Restart-required surfaced. Greenfield fallback path documented. Two universal verbs (`APPROVE` / `REPLAN`) introduced before any walkthrough.
+
+### Deprecated
+
+- **`/new-run` and `/run-pipeline`** survive as deprecated shims at v1.0.0. Each prints a one-paragraph deprecation notice on invocation, offers to delegate to `/run`, and only falls through to legacy v0.5.2 behavior if the user replies `LEGACY`. **These shims will be removed at v1.1.** v0.5.2 muscle-memory has one minor release of soft cutover.
+
+### Preserved unchanged
+
+- The manifest schema (`pipelines/manifest-template.yaml` + `check_manifest_schema.py` rule set).
+- All 13 v0.5.2 role files (`researcher`, `planner`, `test-writer`, `executor`, `verifier`, `drift-detector`, `critic`, `manager`, `judge`, `preflight-auditor`, `local-rehearsal`, `cross-agent-auditor`, `implementer-pre-push`).
+- The six policy scripts (`check_manifest_schema`, `check_allowed_paths`, `check_no_todos`, `check_adr_gate`, `auto_promote`, `run_all`).
+- The three pipeline definitions (`feature.yaml`, `bugfix.yaml`, `module-release.yaml`).
+- The `.agent-runs/<run-id>/` artifact stack (research.md, plan.md, verifier-report.md, etc.).
+- The opt-in judge layer (file-presence activation via `.pipelines/action-classification.yaml`).
+- The six-condition auto-promote check.
+- The v0.3 audit-handoff scaffold (`/audit-init` + the three out-of-repo + in-repo audit artifacts).
+
+### Migration from v0.5.x
+
+1. `cd ~/.claude/plugins/marketplaces/agent-pipeline-claude && git pull && git checkout v1.0.0`.
+2. Restart your Cowork or CLI session.
+3. The `installed_plugins.json` entry should auto-update on next plugin scan. If it doesn't, manually update `gitCommitSha` to the v1.0.0 tag SHA.
+4. Your existing `.pipelines/`, `scripts/policy/`, `CLAUDE.md`, and `.agent-runs/` are unchanged. v1.0 reads them as-is.
+5. Your old `/new-run` + `/run-pipeline` muscle memory still works (with a deprecation notice) through v1.0. New runs should use `/run`.
+
+### Compatibility caveats
+
+- The shape of `manifest.yaml` is unchanged. Old manifests at `.agent-runs/<run-id>/manifest.yaml` from v0.5.x still validate against v1.0.
+- The `.agent-runs/<run-id>/` artifact filenames are unchanged. Old runs can be resumed via `/run resume <run-id>`.
+- The new manifest-drafter writes one additional artifact (`draft-provenance.md`) alongside the manifest. This is informational; no other stage reads it.
 
 ## [0.5.2] — 2026-05-11
 

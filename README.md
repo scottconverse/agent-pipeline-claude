@@ -1,8 +1,51 @@
 # agent-pipeline-claude
 
-A Claude Code plugin that orchestrates multi-stage agentic work: **manifest → research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager**, with human-approval gates at manifest, plan, and manager-decision (the last auto-fires on clean runs at v0.5+). Built from real lessons across CivicCast, CivicSuite, AgentSuiteLocal and other projects where autonomous agent runs go wrong silently and "manager-PROMOTE" failures slip past CI.
+**Ship multi-step Claude Code work that doesn't drift.**
 
-**Current release: v0.5.0** (single-AI hardened). [CHANGELOG](CHANGELOG.md) · [User Manual](USER-MANUAL.md) · [Architecture](ARCHITECTURE.md) · [Landing page](https://scottconverse.github.io/agent-pipeline-claude/) · [Discussions](https://github.com/scottconverse/agent-pipeline-claude/discussions)
+The plugin reads your project's spec, drafts a per-run scope contract from it, and asks you to APPROVE in chat. Then it runs research → plan → execute → verify → critique end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote.
+
+One slash command. No YAML for you to hand-author.
+
+**Current release: v1.0.0** · [CHANGELOG](CHANGELOG.md) · [User Manual](USER-MANUAL.md) · [Architecture](ARCHITECTURE.md) · [Landing page](https://scottconverse.github.io/agent-pipeline-claude/) · [Discussions](https://github.com/scottconverse/agent-pipeline-claude/discussions)
+
+---
+
+## What a typical run looks like
+
+You're in your project. The plugin is installed. You type:
+
+```
+/run "close QA-005 conflict-409 race"
+```
+
+Claude reads your project's spec / release plan / scope-lock / design notes, drafts a manifest, and pastes it in chat:
+
+```
+Drafted from docs/releases/v0.4-scope-lock.md §1 + docs/research/v04-slice1-design.md.
+8/11 fields auto-derived, 3 require your confirmation.
+
+```yaml
+pipeline_run:
+  id: "2026-05-11-qa-005-conflict-race"
+  type: feature
+  branch: rung/0.4
+  goal: "Close audit-team v0.3.0 QA-005 ..."   # drafted from scope-lock §1
+  allowed_paths:
+    - civiccast/schedule/store.py              # drafted from scope-lock §1
+    - civiccast/schedule/router.py             # drafted from scope-lock §1
+    - tests/schedule/                          # drafted from scope-lock §1
+  forbidden_paths:
+    - civiccast/live/                          # drafted from scope-lock §4
+    - docs/adr/                                # drafted from append-only convention
+  ...
+```
+
+Reply APPROVE to start, or describe what to change.
+```
+
+You read it, reply `APPROVE`, and the pipeline runs. Three human gates along the way (manifest, plan, manager-decision), each in chat. The last one auto-fires when six machine-checkable conditions pass. Final result lands in `.agent-runs/<run-id>/` as a structured paper trail.
+
+That's it. No `/new-run` + `/run-pipeline` two-step. No blank YAML to fill in. No CLI commands you don't have.
 
 ## Why this plugin exists
 
@@ -12,251 +55,208 @@ Agentic work fails in predictable ways:
 - The agent claims tests pass without running them against a fresh dependency set.
 - The agent merges in-flight work while a scope question is open.
 - The agent picks architectural decisions silently rather than surfacing them.
+- The manifest the agent's working from doesn't match what the human actually wanted.
 
-This plugin enforces a structural pattern that catches every one of those:
+The plugin enforces a structural pattern that catches every one of those:
 
-1. **Manifest gate** — every run starts with an explicit, human-approved manifest naming the goal, allowed paths, forbidden paths, non-goals, expected outputs, and definition-of-done.
-2. **Director-decisions gate** — the researcher surfaces open questions; the human picks; choices are recorded as binding constraints before the planner runs.
-3. **Plan gate** — the planner produces a plan; the human approves or sends back.
-4. **Policy stage** — automated checks block the run if the manifest fails strict schema validation (v0.5), any change falls outside `allowed_paths`, the diff contains TODO/FIXME/HACK markers, or an existing ADR was modified.
-5. **Verifier stage** — independent fresh-context check against every manifest exit criterion.
-6. **Manager gate** — final PROMOTE/BLOCK/REPLAN decision, must cite verifier evidence verbatim.
+1. **Drafted scope contract.** The manifest is drafted from your project's existing docs and presented for one-click APPROVE. You review what the agent thinks the run is; you don't author it from blank.
+2. **Plan gate.** The planner produces a plan; you approve or send back.
+3. **Policy stage.** Automated checks block the run if the manifest fails strict schema validation, any change falls outside `allowed_paths`, the diff contains TODO/FIXME/HACK markers, or an existing ADR was modified.
+4. **Verifier stage.** Independent fresh-context check against every manifest exit criterion.
+5. **Drift-detector + critic stages.** Adversarial cold-read of every artifact across six lenses; comparison of assembled state against the manifest contract.
+6. **Judge layer (opt-in).** Real-time action-level supervision inside the executor stage. Every tool call is classified; dangerous ones spawn an independent judge subagent that allows / blocks / revises / escalates.
+7. **Auto-promote.** Six conditions checked from the artifact stack: verifier-clean, critic-clean, drift-clean, policy-passed, judge-clean, tests-passed. When all six pass, the manager gate auto-fires. When any fails, the human gate remains.
 
 ## Install
 
-```bash
-# As a Claude Code plugin (one-time install across all projects)
+The plugin works in **Cowork** (the chat-first Claude Code surface) and in **Claude Code CLI** if your build has `/plugin` available.
+
+### Cowork (and any environment without `/plugin install`)
+
+Paste this prompt into any Claude session in any project:
+
+```
+Install the agent-pipeline-claude plugin for me.
+
+Method: clone https://github.com/scottconverse/agent-pipeline-claude
+into ~/.claude/plugins/marketplaces/agent-pipeline-claude. Add an
+agent-pipeline-claude marketplace entry to ~/.claude/plugins/known_marketplaces.json
+pointing at that path. Add agent-pipeline-claude@agent-pipeline-claude to
+~/.claude/plugins/installed_plugins.json with the cloned commit SHA.
+In ~/.claude/settings.json, set
+enabledPlugins["agent-pipeline-claude@agent-pipeline-claude"] = true and add
+the marketplace to extraKnownMarketplaces. If an older
+agentic-pipeline@agentic-pipeline entry exists, set it to false.
+
+Back up settings.json + known_marketplaces.json + installed_plugins.json
+before patching. After install, tell me to restart Cowork (or my CLI)
+to load the new slash commands.
+```
+
+Claude will do the work. **Then restart your Cowork session** — slash commands register at session start. After restart, `/pipeline-init` and `/run` appear in the command palette.
+
+### Claude Code CLI (if `/plugin install` is available)
+
+```
 /plugin install scottconverse/agent-pipeline-claude
 ```
 
-Or clone the repo and add to your Claude Code plugins config manually.
+Then restart your terminal session.
 
 ## First use in a new project
 
-Drop into the project root (or a fresh empty directory) and run:
+Drop into the project root and run:
 
 ```
 /pipeline-init
 ```
 
-The plugin asks one question — what do you have? — and accepts one of three inputs:
-
-1. **A PRD or spec document.** Paste the path or contents. The plugin reads it, derives the project's conventions, scaffolds `CLAUDE.md` + `.pipelines/` + `scripts/policy/` + a `.gitignore` entry, and produces a project-orientation summary.
-2. **A repo URL** (or a local path to an existing repo). The plugin clones (or reads), inspects `README`, `CLAUDE.md`, `pyproject.toml` / `package.json`, `.github/workflows/`, `docs/adr/`, and recent commits. Produces a project-orientation summary, flags missing pieces, installs `.pipelines/` + `scripts/policy/`.
-3. **A project description paragraph or two.** Plugin reads it, asks "scaffold a new project from this, or use as context for an existing repo?" and routes to (1) or (2) accordingly.
-
-After init, your project has:
+The plugin inspects what your project has — spec, release plan, CLAUDE.md, tests, CI workflows — produces a one-message orientation summary, and asks you to APPROVE before scaffolding. After APPROVE, you get:
 
 ```
 .pipelines/
 ├── feature.yaml                    # stage sequence for new functionality
 ├── bugfix.yaml                     # stage sequence for bug fixes
-├── module-release.yaml             # six-phase release pipeline (v0.2+)
+├── module-release.yaml             # six-phase release pipeline
 ├── manifest-template.yaml          # blank template with field docs
 ├── action-classification.yaml      # opt-in: enables the v0.4 judge layer
 ├── self-classification-rules.md    # pre-authorized cases the executor handles solo
 └── roles/
+    ├── manifest-drafter.md         # v1.0 -- reads your spec, drafts the manifest
     ├── researcher.md
     ├── planner.md
     ├── test-writer.md
-    ├── executor.md                 # has the v0.5 pre-edit fact-forcing gate
-    ├── verifier.md                 # emits v0.5 parseable criteria count line
-    ├── drift-detector.md           # v0.5 — manifest contract vs assembled state
-    ├── critic.md                   # v0.5 — adversarial cold read, six lenses
-    ├── manager.md                  # v0.5 auto-promote-aware
-    ├── judge.md                    # v0.4 — used only when judge layer is opt-in
-    ├── preflight-auditor.md        # v0.2 module-release Phase 0
-    ├── local-rehearsal.md          # v0.2 module-release Phase 2
+    ├── executor.md                 # has the pre-edit fact-forcing gate
+    ├── verifier.md
+    ├── drift-detector.md           # manifest contract vs assembled state
+    ├── critic.md                   # adversarial cold read, six lenses
+    ├── manager.md                  # auto-promote-aware
+    ├── judge.md                    # opt-in real-time action supervision
+    ├── preflight-auditor.md        # module-release Phase 0
+    ├── local-rehearsal.md          # module-release Phase 2
     ├── cross-agent-auditor.md      # v0.3 audit-handoff
     └── implementer-pre-push.md     # v0.3 audit-handoff
 scripts/policy/
-├── check_manifest_schema.py        # v0.5 — strict manifest contract validator
-├── check_allowed_paths.py          # generic, manifest-driven
-├── check_no_todos.py               # generic, configurable scan dirs
-├── check_adr_gate.py               # generic, ADRs are append-only
-├── auto_promote.py                 # v0.5 — six-condition machine-checkable promote
-└── run_all.py                      # runner
-.agent-runs/                        # gitignored — pipeline run artifacts
+├── check_manifest_schema.py
+├── check_allowed_paths.py
+├── check_no_todos.py
+├── check_adr_gate.py
+├── auto_promote.py
+└── run_all.py
+CLAUDE.md                           # only created if you don't already have one
+.agent-runs/                        # gitignored -- pipeline run artifacts land here
 ```
+
+The `CLAUDE.md` starter is short and includes a `## Pipeline drafter notes` section telling the manifest-drafter where this project keeps its spec, release plan, design notes, and ledgers. Edit it before your first `/run` for best results.
 
 ## Running a pipeline
 
-Once a project is initialized:
-
 ```
-/new-run feature my-task-slug      # initialize a manifest skeleton
-                                   # (you fill in the manifest, then:)
-/run-pipeline feature 2026-05-09-my-task-slug
-                                   # orchestrates the full sequence,
-                                   # stops at human gates and on failure,
-                                   # resumable from .agent-runs/<run-id>/run.log
+/run "short description of the work"
 ```
 
-Three human-approval gates per run: manifest, plan, manager-decision. Each is a one-question prompt: APPROVE or describe what should change.
+That's the whole command. The drafter reads your project, drafts the manifest, shows it in chat. You reply `APPROVE` to start, or describe changes.
 
-## v0.2: The `module-release` pipeline
-
-For work whose end-state is a published release artifact (module version bump, dependency migration), use `module-release` instead of `feature`. It adds two stages that prevent the most expensive class of failure: cascading discovery of pre-existing CI infrastructure bugs during the remote release run.
+### Other `/run` shapes
 
 ```
-/new-run module-release my-module-v1.2.0-migration
-/run-pipeline module-release 2026-05-11-my-module-v1.2.0-migration
+/run resume 2026-05-11-my-task-slug      # pick up a halted run from its last completed stage
+/run status                              # list runs in this project with last-stage status
+/run                                     # same as /run status
 ```
 
-The pipeline runs six phases:
-- **Phase 0 — Preflight auditor.** Audits the module's release workflow before any product code is touched. YAML parse, workflow run health, referenced scripts exist, local `verify-release.sh` on fresh state, cross-platform reality check, diagnostic instrumentation, audit-punchlist correlation. Bugs found are bundled into ONE PR. See `pipelines/roles/preflight-auditor.md`.
-- **Phase 1 — Scoped product work.** The executor role with pre-authorized self-classification rules (LIVE-STATE / FROZEN-EVIDENCE / SHAPE-GUARD / OWN-MODULE-VERSION for grep hits; MECHANICAL-CI-BUG / CONTRACT-CHANGE / ENVIRONMENTAL / NOVEL for failures) so the agent doesn't halt-and-ask on routine cases. See `pipelines/self-classification-rules.md`.
-- **Phase 2 — Local release rehearsal.** Mirrors the CI environment and runs the release sequence locally on fresh state before tag push. The workflow becomes the *execution* mechanism, not the *discovery* mechanism. See `pipelines/roles/local-rehearsal.md`.
-- **Phase 3 — Remote release + umbrella reconciliation.** Tag push, release workflow watch, umbrella PR through the project's release-lockstep gate.
-- **Phase 4 — Verifier.** Independent fresh-context check of all release artifacts and durable docs.
-- **Phase 5 — Manager.** Final PROMOTE/BLOCK/REPLAN with verifier evidence cited verbatim.
+The old v0.5.2 commands `/new-run` and `/run-pipeline` are deprecated shims in v1.0 — they print a deprecation notice and offer to delegate to `/run`. They will be removed at v1.1.
 
-Human gates at Phase 0 results review, Phase 2 rehearsal-ok, and Phase 5 release-ok.
+## The three human gates
 
-**Operator reference:** `docs/module-release-handbook.md` covers initial setup, expected timing per sprint type, and an honest "what this pipeline does NOT prevent" section. Originating failure receipts are documented in the handbook so future operators understand why each stage exists.
+Each is a chat-message decision moment. Three universal verbs: `APPROVE` to accept, `REPLAN <description>` (or `<description>`) to revise, or — at the manager gate — `BLOCK` to halt.
 
-## v0.3: Dual-AI audit-handoff discipline
+1. **Manifest gate.** The drafted scope contract. You review YAML in chat and APPROVE or describe changes. The drafter loops on revision (max 5 cycles before falling back to a hand-edit prompt).
+2. **Plan gate.** After research → plan, you see the planner's plan summary inline + a count of files in the blast radius + a list of open questions. APPROVE or REPLAN.
+3. **Manager gate.** After everything else completes, the manager produces a PROMOTE / BLOCK / REPLAN recommendation citing the verifier, drift-detector, and critic findings verbatim. APPROVE / BLOCK / REPLAN.
 
-For projects where one AI implements and a second AI audits, v0.3 adds a complementary discipline that catches drift the pipeline doesn't:
+When the auto-promote stage's six conditions all pass, the manager gate auto-fires (PROMOTE) and no human prompt appears. The run reports DONE-PROMOTED in its final summary.
+
+## What about specs and release plans?
+
+The drafter reads these patterns at the project root (or under `docs/`):
+
+| Category | Filename patterns it walks |
+| :--- | :--- |
+| Project spec | `*UnifiedSpec*.md`, `SPEC.md`, `PRD.md`, `REQUIREMENTS.md`, `docs/spec/*.md` |
+| Release ladder | `*ReleasePlan*.md`, `RELEASE-PLAN.md`, `ROADMAP.md`, `docs/spec/release-plan.md` |
+| Per-rung scope contract | `docs/releases/v*-scope-lock.md`, `docs/releases/<rung>-scope.md` |
+| Design notes | `docs/research/<version>-<feature>-design.md`, `docs/design/*.md` |
+| ADRs | `docs/adr/*.md` (closed architectural decisions) |
+| Conventions | `CLAUDE.md` at root |
+| Findings | `audit-*/`, `findings/*.md`, `next-cleanup.md` |
+
+If your project has none of these, the drafter falls back to a greenfield mode: it asks you to paste a 1-3 paragraph description and synthesizes a minimal spec + draft from it.
+
+**You can also tell the drafter where to look** in your `CLAUDE.md` under a `## Pipeline drafter notes` section. The `/pipeline-init` scaffolder writes that section for you.
+
+## v0.5 hardening (preserved in v1.0)
+
+v1.0 keeps every safety mechanism from v0.5 — only the surface around them changed.
+
+- **Critic stage** — adversarial cold read of every artifact in fresh context. Walks six lenses (engineering, UX, tests, docs, QA, scope). Emits `**Findings:**` count line for the auto-promote check.
+- **Drift-detector stage** — compares manifest contract against assembled final state. Catches durable doc drift, status-word abuse, cross-file inconsistency. Emits `**Drift:**` count line.
+- **Pre-edit fact-forcing in executor** — before the first edit per file, the executor must produce importers/callers, public API affected, schema, and the manifest goal quoted verbatim.
+- **Judge layer (opt-in via file presence)** — every executor tool call classified by risk; high-risk and external-facing calls spawn an independent judge subagent with verdict allow / block / revise / escalate.
+- **Machine-checkable auto-promote** — six conditions from the artifact stack: verifier-clean, critic-clean, drift-clean, policy-passed, judge-clean, tests-passed.
+- **Strict manifest schema validation** — minimum-length `goal` and `definition_of_done`, non-empty `expected_outputs` / `non_goals` / `rollback_plan`, forbidden status words banned. Failure messages include remediation pointers (new in v1.0).
+
+## v0.2 module-release pipeline (preserved)
+
+For work whose end-state is a published release artifact, use `module-release` instead of `feature`:
 
 ```
-/audit-init
+/run "v1.2.0 release"
 ```
 
-This scaffolds three artifacts:
-1. `<PROJECT>_AUDIT_GATE.md` (out-of-repo) — short mandatory gate the auditing agent reads every verification turn.
-2. `<PROJECT>_AUDIT_PROTOCOL.md` (out-of-repo) — long reference protocol with the 10-section output shape, status-word rules, and a known drift patterns catalog.
-3. `<project>/docs/process/5-lens-self-audit.md` (in-repo, via PR) — shared discipline both agents read. The implementer runs a hostile 5-lens self-audit before every push (Engineering / UX / Tests / Docs / QA), plus a post-push SHA-propagation step.
+Six-phase pipeline: Phase 0 preflight (audit the release workflow before touching product code), Phase 1 scoped product work, Phase 2 local rehearsal on fresh state, Phase 3 remote release + umbrella reconciliation, Phase 4 verifier, Phase 5 manager. See `docs/module-release-handbook.md` for the full operator reference.
 
-Plus per-agent wiring (Claude memory feedback file on the Claude side; the equivalent project-context or skill-registration mechanism on the other AI's side) so each agent reads the right artifact on session start.
+## v0.3 dual-AI audit-handoff (preserved)
 
-The discipline is symmetric — any AI can play either role. The plugin runs in Claude Code; the second AI can be any tool that exposes a project-context or standing-instructions surface.
+For projects where one AI implements and a second AI audits, `/audit-init` scaffolds the shared discipline (the in-repo 5-lens self-audit doc + the out-of-repo audit gate + audit protocol). See `docs/audit-handoff-handbook.md`.
 
-**Stacking with v0.2:**
-- Pipeline (v0.2) catches execution-cascade failures: pre-existing CI bugs, tag-move dances, halt-and-ask loops.
-- Audit-handoff (v0.3) catches drift failures: wrong endpoint, stale CHANGELOG, "Closed" without evidence, status-word abuse.
-
-The two address different failure modes. Use both for projects with two AI systems.
-
-**Operator reference:** `docs/audit-handoff-handbook.md`.
-
-## v0.4: Judge layer
-
-Real-time action-level supervision **inside** the executor stage. This is not a new pipeline stage; it is opt-in infrastructure that intercepts the executor's tool calls, classifies each one by risk, and spawns a judge subagent for the dangerous ones. Built from the Lindy case study (May 2026, Nate Jones, "LLM-as-Judge"): an agent that sent 14 unauthorized emails because manual confirmation prompts had trained the operator to click "okay" reflexively. Prompts don't hold across long context; the architectural fix is a second agent whose sole loyalty is the manifest.
+## Resuming a halted run
 
 ```
-# Opt in by creating .pipelines/action-classification.yaml in your project.
-# The orchestrator detects the file at run start and uses Handler 3a
-# (classify → judge → execute) instead of Handler 3 for the executor stage.
-# No other commands change.
+/run resume 2026-05-11-my-task-slug
 ```
 
-### What it does
+The orchestrator reads the run's `run.log`, finds the last completed stage, and picks up at the next stage.
 
-Every tool call the executor proposes is classified against `.pipelines/action-classification.yaml` and routed by risk class:
+## Where things live
 
-- `read_only` (e.g. `cat`, `grep`, `git log`) → execute + log.
-- `reversible_write` (e.g. `str_replace_editor`, `git commit`, `cp`) → execute + log.
-- `external_facing` (e.g. `git push` to non-main, `gh pr create`, `curl -X POST`) → STOP, spawn judge.
-- `high_risk` (e.g. `rm -rf`, `git push --force`, `git push main`, `DROP TABLE`, `npm publish`) → STOP, spawn judge, and require human confirm even after the judge ALLOWs.
+```
+.agent-runs/<run-id>/
+├── manifest.yaml              # the run's scope contract (drafted, then APPROVE'd)
+├── draft-provenance.md        # which manifest fields came from which sources
+├── research.md                # researcher's findings
+├── plan.md                    # planner's plan (after human APPROVE)
+├── failing-tests-report.md    # test-writer's output (feature pipeline only)
+├── implementation-report.md   # executor's output
+├── policy-report.md           # auto-policy checks results
+├── verifier-report.md         # independent verifier's report
+├── drift-report.md            # drift-detector findings
+├── critic-report.md           # critic's adversarial review
+├── auto-promote-report.md     # six-condition check (only when NOT_ELIGIBLE)
+├── manager-decision.md        # final PROMOTE/BLOCK/REPLAN
+├── judge-log.yaml             # action-level decisions (only when judge layer active)
+├── judge-metrics.yaml         # action-level metrics (only when judge layer active)
+└── run.log                    # chronological STAGE_DONE / STAGE_FAILED entries
+```
 
-### The four verdicts
+## Migration from v0.5.x
 
-The judge subagent receives the manifest, the matched action policy, prior judge decisions for this run, and the structured action proposal — but **not** the executor's internal reasoning chain. Context isolation is the mechanism: the judge cannot be persuaded by the same chain of inferences that produced the over-broad action.
+v0.5.x users upgrading to v1.0 see no breaking changes in artifact shapes. The manifest schema is unchanged; the slash commands `/new-run` and `/run-pipeline` survive as deprecated shims (removed at v1.1). Run `cd ~/.claude/plugins/marketplaces/agent-pipeline-claude && git pull && git checkout v1.0.0` to upgrade, then restart your session. See [CHANGELOG.md](CHANGELOG.md) v1.0.0 entry for the full migration story.
 
-- **`allow`** — within scope, evidence supports the justification. Proceed.
-- **`block`** — outside scope, violates policy, or unsupported by evidence. Halt.
-- **`revise`** — legitimate basis, wrong form. Send concrete revision instruction back to the executor (e.g. "push to feature branch, not main"). Max 3 revision cycles per action; auto-escalate after.
-- **`escalate`** — requires human judgment (money, credentials, legal, or judge confidence < 0.7). Pipeline pauses for a specific human question.
+## Contributing
 
-### Two new artifacts per run (when judge layer is active)
-
-- **`judge-log.yaml`** — chronological log of every action: tool, arguments, class, disposition (auto_allow / judged_allow / judged_revise / judged_block / judged_escalate / human_confirmed / human_blocked), judge reason, revision instruction. Verifier and manager read this.
-- **`judge-metrics.yaml`** — counts by class and disposition, `escalation_rate`, `judge_invocations`, `revision_cycles`. The escalation rate is the operator's tuning signal — too low means rules too permissive, too high means trust is being eroded by reflexive APPROVE clicking.
-
-### Opt-in by file presence
-
-If `.pipelines/action-classification.yaml` does not exist in your project, the executor stage runs exactly as in v0.3 and earlier — no judge, no `judge-log.yaml`, no behavioral change. The presence of the file at run start opts that run into the judge layer. Operators choose whether to enable it per-project (or per-branch, since it's a file in the repo).
-
-**Stacking with v0.2 and v0.3:**
-
-- Pipeline (v0.2) catches execution-cascade failures — pre-existing CI bugs, tag-move dances, halt-and-ask loops.
-- Audit-handoff (v0.3) catches drift failures — wrong endpoint, stale CHANGELOG, status-word abuse.
-- **Judge layer (v0.4) catches unauthorized actions in real time** — destructive commands, external writes, force pushes, and credential-touching operations evaluated against the manifest at the action boundary instead of after the fact.
-
-**Operator reference:** USER-MANUAL.md §"The judge layer (v0.4)".
-
-## v0.5: Single-AI hardened (current)
-
-Six structural changes that make the pipeline run with **one AI** while still blocking drift and rogue-agent failures. Built from the design question: "can the pipeline do both action-level judge AND post-hoc audit with one AI?" Answer is yes — at the cost of accepting some correlated single-model-family blind spots, with explicit mitigations.
-
-### What changed
-
-- **Critic stage** (`pipelines/roles/critic.md`) — adversarial cold read of every artifact in a fresh context. Walks six lenses (engineering, UX, tests, docs, QA, scope). Emits a parseable `**Findings:**` count line. Structural substitute for cross-family verification.
-- **Drift-detector stage** (`pipelines/roles/drift-detector.md`) — compares manifest contract against assembled final state. Catches durable doc drift, status-word abuse, cross-file inconsistency, ledger top-totals vs row counts. Emits parseable `**Drift:**` count line.
-- **Pre-edit fact-forcing in executor** — before the first edit per file, the executor must produce importers/callers, public API affected, schema, and the manifest goal quoted verbatim. Forces investigation that catches blast-radius surprises before they hit the verifier.
-- **Expanded judge classification** — five new `high_risk` patterns: `npm install -g`, `sudo`, non-editable non-user `pip install`, `git commit` with BREAKING in message.
-- **Machine-checkable auto-promote** (`scripts/auto_promote.py`) — six conditions checked from the artifact stack: verifier-clean, critic-clean, drift-clean, policy-passed, judge-clean, tests-passed. When all six pass, the manager gate auto-fires; when any fails, the human gate remains.
-- **Strict manifest schema validation** (`scripts/check_manifest_schema.py`) — minimum-length `goal` and `definition_of_done`, non-empty `expected_outputs` / `non_goals` / `rollback_plan`, forbidden status words banned from manifest contracts, broad `allowed_paths` requires non-empty `forbidden_paths`. Fuzzy manifests fail at the start of the run, not after they cascade.
-
-### How the pipeline shape changes
-
-Pre-v0.5: `manifest → research → plan → test-write → execute → policy → verify → manager`
-
-v0.5: `manifest → research → plan → test-write → execute → policy → verify → drift-detect → critique → auto-promote → manager`
-
-The new three stages add ~10–20 minutes of wall-clock per run depending on artifact size. The auto-promote stage typically lands the manager decision in <30 seconds when the six conditions are green, eliminating the third human gate on clean runs.
-
-### Honest limit
-
-Single-model-family blind spots correlate. If both the executor and the critic share a wrong assumption that fits the manifest, both sign off and auto-promote fires green. Dual-AI (v0.3) is the only structural defense against this. **Recommended mitigation:** periodic sample audit by a different model family on a weekly cadence. The v0.3 `/audit-init` discipline still applies; v0.5 does not replace it.
-
-### Stacking with v0.2, v0.3, v0.4
-
-- v0.2 catches execution-cascade failures (pre-executor).
-- v0.3 catches drift failures via cross-family audit (post-executor, separate session).
-- v0.4 catches unauthorized actions in real time (during executor).
-- **v0.5 catches the drift class without needing a second AI** (during verify → drift-detect → critique → auto-promote).
-
-The four stack. Most projects run v0.4 + v0.5 by default and reach for v0.3 when they have two model families available.
-
-**Operator reference:** USER-MANUAL.md §"v0.5 single-AI hardening" + ARCHITECTURE.md §8 "Single-AI hardening (v0.5)".
-
-## What this plugin will NOT do
-
-- It will not propose autonomous mode. Every gate is explicit.
-- It will not silently expand scope. The policy stage blocks any change outside `allowed_paths`.
-- It will not skip tests. CLAUDE.md hard-rule "never skip tests" is enforced as a project default.
-- It will not promote a run if the verifier marked any criterion NOT MET. Manager hard rule.
-
-## Project-specific customization
-
-After `/pipeline-init`, the files installed in your repo are yours to edit. Add project-specific policy checks alongside the generic ones (e.g., a CivicCast-style `check_ffmpeg_wrapper.py`). Customize the role files to reference your project's specific ADRs, CLAUDE.md sections, test patterns. The plugin's slash commands work against whatever's in your repo's `.pipelines/` and `scripts/policy/` directories.
-
-## Documentation
-
-- `commands/pipeline-init.md` — the full onboarding command logic
-- `commands/new-run.md` — the run-init command logic
-- `commands/run-pipeline.md` — the orchestrator command logic (includes v0.4 Handler 3a judge interception and v0.5 Handler 4 auto-promote-aware manager)
-- `commands/audit-init.md` — scaffolds the v0.3 dual-AI audit-handoff infrastructure
-- `pipelines/roles/*.md` — what each role does, what's forbidden
-- `pipelines/manifest-template.yaml` — every manifest field with inline docs
-- `scripts/auto_promote.py` — v0.5 six-condition promote-eligibility checker (`--version` to confirm release)
-- `scripts/check_manifest_schema.py` — v0.5 manifest validator (`--version` to confirm release)
-- `USER-MANUAL.md` — end-to-end operator reference, every command + gate + troubleshooting case
-- `ARCHITECTURE.md` — diagrams, file layout, artifact data flow, extension points
-- `CHANGELOG.md` — every release with rationale, what changed, what didn't
-
-## Lessons baked in
-
-This plugin's defaults reflect failures from prior projects. Notably:
-
-- Halts apply to ALL repo state changes, including in-flight cleanup work
-- Auto mode never overrides explicit stops
-- "Tests pass locally" is not evidence; CI on a fresh dep set is
-- Manifest amendments are corrections, not expansions, and the pattern of needing them means the manifest template should use directory-level path granularity for same-module test paths
-- The manager must cite verifier evidence verbatim; encouragement and summarization are forbidden in the role file
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and discussions welcome.
 
 ## License
 
-Apache 2.0.
+Apache-2.0. See [LICENSE](LICENSE).
