@@ -18,6 +18,7 @@ stages:
     role: human
     artifact: manifest.yaml
     gate: human_approval
+    autonomous_skip_chat: true
 
   - name: preflight
     role: pipeline
@@ -64,3 +65,4 @@ stages:
     artifact: manager-decision.md
     gate: human_approval
     auto_promote_aware: true
+    autonomous_skip_chat: true

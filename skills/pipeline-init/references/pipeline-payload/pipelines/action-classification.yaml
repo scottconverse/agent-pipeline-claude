@@ -24,6 +24,34 @@
 classification:
 
   # ------------------------------------------------------------------
+  # human_only_under_autonomous (v1.2.1+) — actions that REMAIN human-
+  # approved even when the run is under gate_policy: autonomous. These
+  # are the actions the grant's Forbidden-actions list reinforces. The
+  # judge layer treats these as high_risk regardless of grant.
+  # ------------------------------------------------------------------
+  human_only_under_autonomous:
+
+    - pattern: 'gh\s+pr\s+merge\b.*--admin'
+      tool: bash
+      note: "Admin-merge a PR. Even with grant, requires explicit human."
+
+    - pattern: 'gh\s+release\s+create\b'
+      tool: bash
+      note: "Publish a GitHub release. Externally visible."
+
+    - pattern: 'git\s+push\b.*--force\b'
+      tool: bash
+      note: "Force push. Can destroy remote history."
+
+    - pattern: 'git\s+push\b.*--tags\b'
+      tool: bash
+      note: "Push tags. Externally visible; release-engineer-only."
+
+    - pattern: 'git\s+push\b.+v\d+\.\d+\.\d+'
+      tool: bash
+      note: "Push a version tag. Triggers release infrastructure."
+
+  # ------------------------------------------------------------------
   # high_risk — irreversible, externally visible, or affects shared
   # state. Always judged. If judge ALLOWs, ALSO requires human confirm.
   # ------------------------------------------------------------------

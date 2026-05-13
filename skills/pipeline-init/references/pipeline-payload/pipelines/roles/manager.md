@@ -94,3 +94,33 @@ The stage is complete only when:
 - Every other section refers to a specific artifact and quote.
 - A human approver reading only manager-decision.md plus the verifier-report.md can confirm or reject without reading anything else.
 - Append `STAGE_DONE: manager` to `.agent-runs/<run-id>/run.log` as your final action. `check_stage_done.py` enforces (v1.2.0).
+
+## Autonomous-mode awareness (v1.2.1+)
+
+If the manifest specifies `gate_policy: autonomous` AND `autonomous-mode.log` shows `AUTONOMOUS-ACTIVE`, the manager gate's behavior depends on the verdict:
+
+- **Verdict = PROMOTE** AND the grant's Authorized-gates includes `manager-gate APPROVE (PROMOTE only)` or `manager-gate APPROVE`: auto-approve.
+- **Verdict = REPLAN or BLOCK** OR the grant does not authorize the manager gate: halt for human regardless of mode.
+
+When auto-approving:
+
+1. Write manager-decision.md exactly as normal — same verdict, same citations, same Resolution-per-finding table.
+2. Append to `.agent-runs/<run-id>/autonomous-decisions.md`:
+
+   ```markdown
+   ## <ISO timestamp> — manager
+   Verdict: AUTONOMOUS-PROMOTE
+   Rationale: <citations to the verifier/critic/drift findings that drove PROMOTE>
+   Grant authorization: <path to grant file>:<heading line>
+   Artifact: .agent-runs/<run-id>/manager-decision.md
+   Proceeding to: PR creation (PR opened, NOT admin-merged)
+   ```
+
+3. The PR is opened (executor stage handled that already, or the manager opens it now per project convention).
+4. **Never** admin-merge under autonomous mode. The PR sits awaiting human review. The grant authorizes APPROVE on the manager VERDICT, not the merge ACTION.
+5. Produce chat status: `"AUTONOMOUS-PROMOTE: manager decision recorded. PR at <url>. Awaiting human admin-merge."`
+6. Return control.
+
+**If the verdict is BLOCK**: write manager-decision.md, do NOT log autonomous-promote, halt for human review per normal BLOCK semantics.
+
+**If the verdict is REPLAN**: same — REPLAN routes back to the planner; autonomous mode doesn't authorize replanning, only verdict-approval.

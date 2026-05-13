@@ -36,6 +36,10 @@ CHECKS: list[tuple[str, list[str]]] = [
     ("check_adr_gate", ["check_adr_gate.py"]),
     # v1.2.0: STAGE_DONE markers required through `execute` by policy stage.
     ("check_stage_done", ["check_stage_done.py", "--through", "execute"]),
+    # v1.2.1: autonomous-mode compliance — verifies the LLM honored the
+    # autonomous grant correctly (no chat-wait messages slipping through,
+    # no forbidden actions in run.log). Silent skip for HUMAN-MODE runs.
+    ("check_autonomous_compliance", ["check_autonomous_compliance.py"]),
 ]
 
 
@@ -61,6 +65,7 @@ def main() -> int:
         "check_manifest_schema",
         "check_manifest_immutable",
         "check_stage_done",
+        "check_autonomous_compliance",
     }
 
     results: list[tuple[str, bool, str]] = []

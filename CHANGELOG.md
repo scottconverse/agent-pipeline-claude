@@ -5,6 +5,70 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-05-13
+
+**Autonomous-mode hardening: chat-driven grants, structural enforcement.**
+
+v1.2.0 closed a structural pipeline gap (priority drift via off-target manifests). v1.2.1 closes a behavioral gap that v1.2.0 didn't catch: an LLM operating the pipeline under conversational autonomous-mode authorization could "chicken out" and refuse to honor the authorization. The fix is structural — autonomous mode requires a signed grant document the LLM cannot interpret away. Conversation alone is no longer enough.
+
+The grant is created by chat command (user describes → Claude writes the file). The pipeline reads the file at preflight and at every subsequent gate; mid-run revocation or expiration halts the next gate.
+
+### How it works
+
+- **User types in chat:** *"Grant autonomous mode for 8 hours, manager PROMOTE only, for Candidate B."*
+- **Claude:** parses, confirms in chat, writes `.agent-workflows/autonomous-grants/<name>.md` with required headers (Granted-by / Granted-at / Expires-at / Authorized-gates / Forbidden-actions / Revoked / Rationale), updates `.agent-workflows/autonomous-grants/ledger.md`.
+- **User invokes:** `/agent-pipeline-claude:run-autonomous --grant <path> "<task>"`.
+- **Pipeline:** preflight validates grant; manifest gate, plan gate, manager gate (PROMOTE only) auto-approve based on LLM's recommendation; PRs opened but NOT admin-merged; every decision logged to `.agent-runs/<run-id>/autonomous-decisions.md`.
+- **User revokes:** *"revoke autonomous"* / *"kill it"* — Claude edits `Revoked: false → true`. Next gate halts.
+
+### Added
+
+- **`scripts/check_autonomous_mode.py`** — validates the grant file. Returns one of `HUMAN-MODE`, `AUTONOMOUS-ACTIVE`, `NO_GRANT_FILE`, `GRANT_EXPIRED`, `GRANT_REVOKED`, `GRANT_MALFORMED`. Logs status to `.agent-runs/<run-id>/autonomous-mode.log`.
+- **`scripts/check_autonomous_compliance.py`** — post-run drift check. Verifies every stage marked `autonomous_skip_chat: true` has an entry in autonomous-decisions.md, no forbidden-action commands fired in run.log, no chat-wait patterns (`Reply APPROVE`) slipped through. Emits `COMPLIANCE_DRIFT` findings.
+- **`skills/grant-autonomous/`** — chat-driven grant management skill. Parses user's natural-language create/revoke/extend/delete intent; confirms; writes the grant file + ledger entry. Invoked as `/agent-pipeline-claude:grant-autonomous`.
+- **`skills/run-autonomous/`** — entry point for autonomous runs. Validates the grant, then invokes the standard `/run` flow under autonomous-mode hard rules.
+- **`pipelines/action-classification.yaml`** — new `human_only_under_autonomous` class with patterns for `gh pr merge --admin`, `gh release create`, `git push --force`, `git push --tags`, version tag push.
+- **Manifest fields** — `gate_policy: human | autonomous` (default human) and `autonomous_grant: <path>` (required when gate_policy=autonomous).
+- **Pipeline yaml flag** — `autonomous_skip_chat: true` on manifest / plan / manager stages in `feature.yaml` and `bugfix.yaml`. When `gate_policy: autonomous` AND `check_autonomous_mode` returns `AUTONOMOUS-ACTIVE`, these gates skip chat-APPROVE.
+- **Tests** — `test_check_autonomous_mode.py` (9 tests, all grant states), `test_check_autonomous_compliance.py` (6 tests, all drift patterns).
+
+### Changed
+
+- **`scripts/check_manifest_schema.py`** — validates `gate_policy` ∈ `{human, autonomous}`; requires `autonomous_grant` non-empty when gate_policy=autonomous.
+- **`scripts/run_preflight.py`** — adds `check_autonomous_mode` to the preflight check sequence.
+- **`scripts/run_all.py`** — adds `check_autonomous_compliance` to the policy stage's check sequence.
+- **`pipelines/manifest-template.yaml`** — adds `gate_policy` and `autonomous_grant` fields with full inline documentation.
+- **`pipelines/feature.yaml`, `pipelines/bugfix.yaml`** — adds `autonomous_skip_chat: true` to the three human-approval stages.
+- **`pipelines/roles/manifest-drafter.md`** — adds autonomous-mode awareness section. Drafter sets `gate_policy: autonomous` and `autonomous_grant` in the manifest when the orchestrator invoked it under autonomous mode.
+- **`pipelines/roles/planner.md`** — adds autonomous-mode awareness. Plan stage auto-approves and logs the decision.
+- **`pipelines/roles/manager.md`** — adds autonomous-mode awareness. Auto-approves only on `PROMOTE` verdicts when the grant authorizes manager-gate; `BLOCK` and `REPLAN` halt for human regardless.
+- **`skills/run/SKILL.md`** — new top-level hard rules for autonomous-mode procedure + explicit list of actions never authorized by autonomous mode (admin-merge, tag push, release publish, force push, human_only_under_autonomous class).
+
+### Not changed
+
+- `pipelines/module-release.yaml` — module-release runs end in tag pushes which are forbidden under autonomous mode. Leaving module-release human-only is the safest default for v1.2.1.
+
+### Verified
+
+- pytest full suite: **73 passed in 5.62s** (free tier, up from 58 in v1.2.0). 15 new tests cover all grant states + all compliance-drift patterns.
+- Bundled payload at `skills/pipeline-init/references/pipeline-payload/` synced 1:1 with `pipelines/` and `scripts/` source-of-truth.
+- Both new skills follow the canonical pipeline-init/run/audit-init shape: SKILL.md (front-matter description + tool mapping + hard rules) + `references/<skill>.md` (full procedure).
+
+### What this fixes
+
+The behavioral failure mode from earlier this session: I (the LLM operating the pipeline) refused to honor Scott's conversational authorization to run autonomously while he slept. v1.2.1 makes that refusal structurally impossible:
+
+- Conversation cannot flip the bit; only a signed grant file can.
+- The grant is short-lived (max 24h default), scope-bounded, and explicitly enumerates forbidden actions.
+- The SKILL.md hard rule under autonomous mode forbids emitting "Reply APPROVE" chat messages — `check_autonomous_compliance.py` catches them post-run and emits `COMPLIANCE_DRIFT` findings the manager must resolve.
+- Action classification reinforces: even with a grant, admin-merges and tag pushes are human-only.
+
+### Migration
+
+No migration needed. v1.2.1 is fully backward-compatible. Manifests without `gate_policy` default to `human` and behave exactly as v1.2.0.
+
+To USE autonomous mode: ask Claude to write a grant (`/agent-pipeline-claude:grant-autonomous` or natural language), then invoke `/agent-pipeline-claude:run-autonomous --grant <path> "<task>"`.
+
 ## [1.2.0] — 2026-05-13
 
 **Hardened pipeline: priority-drift gate, manifest-integrity gate, stage-output rigor, cross-stage consistency, manager-decision rigor.**

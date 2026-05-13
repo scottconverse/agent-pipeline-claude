@@ -383,6 +383,42 @@ def _check(fields: dict[str, object]) -> list[dict[str, str]]:
     # v1.2.0 multi-repo (target_repos) — optional
     # ---------------------------------------------------------------------
 
+    # ---------------------------------------------------------------------
+    # v1.2.1 autonomous-mode fields
+    # ---------------------------------------------------------------------
+
+    gate_policy = fields.get("gate_policy")
+    autonomous_grant = fields.get("autonomous_grant")
+
+    if gate_policy is not None and gate_policy not in ("human", "autonomous", "", None):
+        violations.append(
+            {
+                "field": "gate_policy",
+                "problem": f"unknown value {gate_policy!r}; expected 'human' or 'autonomous'",
+                "current": _short_repr(gate_policy),
+                "suggest": (
+                    "set to 'human' (default; three gates require chat-APPROVE) or "
+                    "'autonomous' (requires a valid autonomous_grant; gates marked "
+                    "autonomous_skip_chat proceed without human reply)."
+                ),
+            }
+        )
+
+    if isinstance(gate_policy, str) and gate_policy == "autonomous":
+        if not isinstance(autonomous_grant, str) or not autonomous_grant.strip():
+            violations.append(
+                {
+                    "field": "autonomous_grant",
+                    "problem": "missing (required when gate_policy=autonomous)",
+                    "current": _short_repr(autonomous_grant),
+                    "suggest": (
+                        "set to the path of your grant file under "
+                        ".agent-workflows/autonomous-grants/. Ask Claude in chat to "
+                        "create the grant — the chat command writes the file."
+                    ),
+                }
+            )
+
     target_repos = fields.get("target_repos")
     if target_repos is not None:
         if not isinstance(target_repos, list):
@@ -455,7 +491,7 @@ def _short_repr(value: object, max_len: int = 80) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.2.0")
+    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.2.1")
     parser.add_argument(
         "--run",
         help="Pipeline run id (directory under .agent-runs/). Without this, the check is a no-op.",

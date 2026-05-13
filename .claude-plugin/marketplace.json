@@ -3,7 +3,7 @@
       "description" : "Run multi-step Claude Code work without drift. One namespaced skill (/agent-pipeline-claude:run). Drafted scope contracts from your project's spec. Three human gates in chat, opt-in real-time judge, machine-checkable auto-promote.",
       "homepage" : "https://scottconverse.github.io/agent-pipeline-claude/",
       "repository" : "https://github.com/scottconverse/agent-pipeline-claude",
-      "version" : "1.2.0"
+      "version" : "1.2.1"
    },
    "name" : "agent-pipeline-claude",
    "owner" : {
@@ -30,7 +30,7 @@
          "license" : "Apache-2.0",
          "name" : "agent-pipeline-claude",
          "source" : "./",
-         "version" : "1.2.0"
+         "version" : "1.2.1"
       }
    ]
 }
