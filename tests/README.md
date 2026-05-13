@@ -12,7 +12,8 @@ Six layers, ordered by cost and depth:
 | **Unit** | Policy scripts behave correctly on synthetic input | seconds | $0 | every commit (CI) |
 | **Smoke (in-tree)** | Plugin's skills are self-contained when copied to an installed-cache shape | seconds | $0 | every commit (CI) |
 | **Cleanroom — load** | Plugin loads from a fresh copy (no `.git`, no caches, no host config) via `claude --plugin-dir` | seconds | $0 | every commit (CI) |
-| **Cleanroom — smoke** | The FIRST skill actually executes against a fresh fixture (`/pipeline-init` scaffolds `.pipelines/` end-to-end) | ~60s | ~$0.05 (Haiku) | opt-in / pre-release |
+| **Scaffold unit** | Deterministic copy-the-payload step lands the expected `.pipelines/` + `scripts/policy/` tree | sub-second | $0 | every commit (CI) |
+| **Cleanroom — smoke** | The FIRST skill actually executes against a fresh fixture (model + CLI + Skill-tool, end-to-end) | ~60s | ~$0.05 (Haiku) | opt-in / pre-release |
 | **End-to-end** | Full `/run` orchestrates research → … → manager against a fixture | minutes | ~$2 Haiku / ~$15 Sonnet | tags + nightly |
 
 Each layer catches a different failure class. **Cleanroom-load** catches the v1.0.0/v1.0.1 regression (manifest passed unit tests but loader silently rejected the install). **Cleanroom-smoke** is the layer that catches one tier up: plugin loads but skills no-op, scaffold to the wrong path, or hang at orientation. The v1.1.0 cleanroom-load test ships proved the plugin loads; v1.1.1's cleanroom-smoke test proves the plugin **works**.
@@ -44,6 +45,14 @@ Smoke + Static together catch "manifest valid in isolation, but loader rejects l
 These three skip gracefully if `claude` isn't on PATH (via `pytest.skip`). They catch the v1.0.0 / v1.0.1 schema-rejection regression class — manifest validates in isolation but the loader rejects the layout.
 
 **Honest gap (v1.1.0 had this; v1.1.1 closes it):** load-only cleanroom proves the plugin shows `✔ loaded` and the manifest validates. It does NOT prove any skill actually does anything. That's what the next tier is for.
+
+### Scaffold unit test (v1.1.2+, $0, sub-second)
+
+- **`tests/test_scaffold_pipeline.py`** — 9 tests against `scripts/scaffold_pipeline.py`, the deterministic copy-the-bundled-payload step that `/pipeline-init` performs on APPROVE. Asserts the same `.pipelines/` + `scripts/policy/` file tree that the cleanroom-smoke test asserts, but executes the copy as a plain Python function call against a tmp_path — no `claude` CLI, no model, $0, sub-second.
+
+This catches the *deterministic* sub-class of the failure cleanroom-smoke watches for: payload drift, missing files in the bundle, broken copy logic. The *non-deterministic* sub-class (model fails to invoke the skill, claude CLI's Skill-tool dispatch silently no-ops, markdown unreadable) still requires cleanroom-smoke. Both tests share the same expected-file list — if you add a file to the bundled payload, update both assertions.
+
+See [`docs/LOCAL_TEST_RESEARCH.md`](../docs/LOCAL_TEST_RESEARCH.md) for why this tier was added (local-LLM proxy walls).
 
 ### Cleanroom — smoke (opt-in, ~$0.05, ~60s)
 

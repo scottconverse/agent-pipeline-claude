@@ -5,6 +5,35 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] — 2026-05-12
+
+**Deterministic $0 scaffold test, plus auxiliary scaffolder helper.**
+
+v1.1.1 added `tests/test_cleanroom_smoke.py` to prove the first skill actually executes against a fresh fixture — but that test costs ~$0.05/run on Haiku and requires `ANTHROPIC_API_KEY`. For every-commit CI and for users running without an API key (e.g. routing `claude` through a local-model proxy), there was no automated coverage of the scaffold's load-bearing post-condition: does `.pipelines/` materialize with the expected files?
+
+v1.1.2 closes that with a unit-tier test that exercises just the deterministic copy step — same assertions as cleanroom-smoke, $0, sub-second.
+
+The motivation: an attempt to make cleanroom-smoke run against local Ollama models via [`claude-code-router`](https://github.com/musistudio/claude-code-router) hit three walls (`thinking`-field rejection on `qwen3-coder:30b`, small-model tool-use looping on `gemma4:e4b`, and `ERR_STREAM_PREMATURE_CLOSE` on multi-turn skill invocations) — see [`docs/LOCAL_TEST_RESEARCH.md`](docs/LOCAL_TEST_RESEARCH.md). Rather than fight the proxy, lift the deterministic part of the scaffold into a callable function and assert against that directly.
+
+### Added
+
+- **`scripts/scaffold_pipeline.py`** — pure-stdlib helper that copies the bundled payload (`skills/pipeline-init/references/pipeline-payload/`) into a target project root. Public `scaffold(project_root, *, payload_root=None, overwrite=False)` returns a `ScaffoldResult` with the files written. Also callable as CLI: `python scripts/scaffold_pipeline.py <project_root> [--overwrite]`. Honors the same hard rules as SKILL.md (refuses to overwrite existing `.pipelines/` or `scripts/policy/` without `--overwrite`; appends `.agent-runs/` to `.gitignore`).
+
+- **`tests/test_scaffold_pipeline.py`** — 9 deterministic $0 tests covering: payload exists at expected location, fresh-project scaffold produces the same file tree cleanroom-smoke asserts, `.gitignore` updated, existing `.gitignore` entries preserved, idempotent on re-run, refuses overwrite without flag, overwrite flag replaces cleanly, rejects missing project root, rejects missing payload.
+
+- **`docs/LOCAL_TEST_RESEARCH.md`** — captures the local-LLM test-harness investigation. Documents what works (Anthropic→Ollama via `claude-code-router` for simple tool-use), the three walls hit (thinking field, small-model loops, premature stream close), and the conditions under which Tier A would be worth revisiting.
+
+### Changed
+
+- **`--version` strings bumped 1.1.1 → 1.1.2** in `scripts/check_manifest_schema.py` and its bundled payload copy. `test_version_reports_1_1_1` → `test_version_reports_1_1_2`.
+- **Manifest versions bumped 1.1.1 → 1.1.2** in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+
+### Verified
+
+- pytest full suite: **24 passed in 4.99s** (free tier, up from 15). The cleanroom-smoke test remains opt-in for API-key holders (unchanged behavior).
+- New scaffold tests run in 0.51s with $0 spend.
+- Coverage gap honestly noted in `tests/test_scaffold_pipeline.py` docstring: the unit test does NOT prove the LLM correctly invokes the skill or that claude CLI's Skill-tool dispatch works. Those remain covered by `test_skill_packaging.py`, `claude plugin list` ✔ enabled, and manual Cowork verification.
+
 ## [1.1.1] — 2026-05-12
 
 **Honest fix to the v1.1.0 cleanroom test gap.**
