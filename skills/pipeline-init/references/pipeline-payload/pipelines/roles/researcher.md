@@ -35,3 +35,5 @@ Write **`.agent-runs/<run-id>/research.md`** with these sections:
 Your research.md is complete only when a downstream planner can read it and need NOTHING else from the repo to draft an implementation plan that doesn't violate any constraint. If the planner would have to go read three more ADRs to know what's allowed, your research is incomplete.
 
 If `director_notes` items exist in the manifest, every one of them must be developed in §5 with a full trade-off matrix. The researcher gives a recommendation for each but explicitly defers the FINAL CHOICE to the human director.
+
+**v1.2.0 hardening:** Append `STAGE_DONE: research` to `.agent-runs/<run-id>/run.log` as your final action. `scripts/policy/check_stage_done.py` enforces.

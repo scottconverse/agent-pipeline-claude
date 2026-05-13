@@ -42,7 +42,12 @@ from pathlib import Path
 FORBIDDEN_STATUS_WORDS = {"done", "complete", "ready", "shippable", "taggable"}
 MIN_GOAL_CHARS = 30
 MIN_DOD_CHARS = 80
+MIN_ADVANCES_TARGET_CHARS = 8
+MIN_OVERRIDE_REASON_CHARS = 60
 BROAD_PREFIX_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*/$")
+AUTHORIZING_SOURCE_PATTERN = re.compile(
+    r"^[^\s:]+(?:\.[A-Za-z0-9]+)?(?::\d+)?$"
+)
 
 
 def _find_repo_root() -> Path:
@@ -295,6 +300,146 @@ def _check(fields: dict[str, object]) -> list[dict[str, str]]:
                 }
             )
 
+    # ---------------------------------------------------------------------
+    # v1.2.0 priority-drift fields
+    # ---------------------------------------------------------------------
+
+    advances_target = fields.get("advances_target")
+    override_reason = fields.get("override_active_target")
+    has_override = (
+        isinstance(override_reason, str)
+        and len(override_reason.strip()) >= MIN_OVERRIDE_REASON_CHARS
+    )
+
+    if not isinstance(advances_target, str) or len(advances_target.strip()) < MIN_ADVANCES_TARGET_CHARS:
+        violations.append(
+            {
+                "field": "advances_target",
+                "problem": (
+                    f"missing or too short (minimum {MIN_ADVANCES_TARGET_CHARS} chars; "
+                    "v1.2.0+ required field)"
+                ),
+                "current": _short_repr(advances_target),
+                "suggest": (
+                    "set advances_target to the exact 'Active target:' string from your project's "
+                    "control plane (e.g. .agent-workflows/PROJECT_CONTROL_PLANE.md). "
+                    "Example: \"Installer/macOS certification follow-up\". "
+                    "check_active_target.py validates this against the discovered control plane."
+                ),
+            }
+        )
+
+    authorizing_source = fields.get("authorizing_source")
+    if not has_override:
+        # authorizing_source is required when override is not in use
+        if not isinstance(authorizing_source, str) or not authorizing_source.strip():
+            violations.append(
+                {
+                    "field": "authorizing_source",
+                    "problem": "missing (v1.2.0+ required field unless override_active_target is set)",
+                    "current": _short_repr(authorizing_source),
+                    "suggest": (
+                        "cite the exact line in your control plane authorizing this work, in the "
+                        "format `path/to/control_plane.md:LINE_NO`. Example: "
+                        "\".agent-workflows/PROJECT_CONTROL_PLANE.md:83\". "
+                        "check_manifest_paths.py verifies the file exists and the line is in range."
+                    ),
+                }
+            )
+        elif not AUTHORIZING_SOURCE_PATTERN.match(authorizing_source.strip()):
+            violations.append(
+                {
+                    "field": "authorizing_source",
+                    "problem": "format invalid (expected path[:line_number])",
+                    "current": _short_repr(authorizing_source),
+                    "suggest": (
+                        "use the format `path/to/file.md:LINE_NO` or `path/to/file.md`. "
+                        "Example: \".agent-workflows/PROJECT_CONTROL_PLANE.md:83\"."
+                    ),
+                }
+            )
+
+    if override_reason is not None and not has_override:
+        # Override field is present but insufficient
+        actual = len(override_reason.strip()) if isinstance(override_reason, str) else 0
+        violations.append(
+            {
+                "field": "override_active_target",
+                "problem": (
+                    f"override reason too short ({actual} chars; "
+                    f"minimum {MIN_OVERRIDE_REASON_CHARS} for ~two sentences)"
+                ),
+                "current": _short_repr(override_reason),
+                "suggest": (
+                    "if you genuinely need to bypass the active-target check, write a 2+ sentence "
+                    "rationale here. The override is logged to "
+                    ".agent-workflows/scope-overrides.md and surfaces at the manifest gate for "
+                    "explicit OVERRIDE-CONFIRMED. Empty / short reasons fail closed by design."
+                ),
+            }
+        )
+
+    # ---------------------------------------------------------------------
+    # v1.2.0 multi-repo (target_repos) — optional
+    # ---------------------------------------------------------------------
+
+    target_repos = fields.get("target_repos")
+    if target_repos is not None:
+        if not isinstance(target_repos, list):
+            violations.append(
+                {
+                    "field": "target_repos",
+                    "problem": "must be a list (or omitted entirely for single-repo runs)",
+                    "current": _short_repr(target_repos),
+                    "suggest": (
+                        "for multi-repo runs, use: target_repos:\n"
+                        "  - path: ../sibling-repo\n"
+                        "    allowed_paths:\n"
+                        "      - relative/path/in/sibling/\n"
+                        "for single-repo runs, omit this field entirely."
+                    ),
+                }
+            )
+        else:
+            for idx, entry in enumerate(target_repos):
+                if not isinstance(entry, dict):
+                    violations.append(
+                        {
+                            "field": f"target_repos[{idx}]",
+                            "problem": "must be an object with `path` and `allowed_paths`",
+                            "current": _short_repr(entry),
+                            "suggest": "use the documented multi-repo shape (path + allowed_paths).",
+                        }
+                    )
+                    continue
+                repo_path = entry.get("path")
+                if not isinstance(repo_path, str) or not repo_path.strip():
+                    violations.append(
+                        {
+                            "field": f"target_repos[{idx}].path",
+                            "problem": "missing or empty",
+                            "current": _short_repr(repo_path),
+                            "suggest": (
+                                "set to the relative path of the sibling repo, e.g. "
+                                "\"../civicrecords-ai\" or \"../civicclerk\"."
+                            ),
+                        }
+                    )
+                repo_allowed = entry.get("allowed_paths")
+                if not isinstance(repo_allowed, list) or len(repo_allowed) < 1:
+                    violations.append(
+                        {
+                            "field": f"target_repos[{idx}].allowed_paths",
+                            "problem": "must be a non-empty list",
+                            "current": _short_repr(repo_allowed),
+                            "suggest": (
+                                "list the path prefixes inside this sibling repo that the run "
+                                "may touch. Empty = no work in this repo, which makes the entry "
+                                "pointless."
+                            ),
+                        }
+                    )
+
     return violations
 
 
@@ -310,7 +455,7 @@ def _short_repr(value: object, max_len: int = 80) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.1.2")
+    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.2.0")
     parser.add_argument(
         "--run",
         help="Pipeline run id (directory under .agent-runs/). Without this, the check is a no-op.",

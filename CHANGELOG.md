@@ -5,6 +5,79 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-05-13
+
+**Hardened pipeline: priority-drift gate, manifest-integrity gate, stage-output rigor, cross-stage consistency, manager-decision rigor.**
+
+v1.1.2 shipped a deterministic $0 unit test for the scaffolder, but the pipeline itself had a load-bearing gap: the manifest gate caught well-formed manifests, not off-priority ones. A user could feed the drafter a task description that didn't match the project's active target, the drafter would faithfully produce a manifest for the wrong work, and the manifest gate would rubber-stamp it as long as the schema was clean.
+
+v1.2.0 closes that class of failure with a new preflight stage between the manifest gate and the researcher stage, plus a constellation of stage-output and cross-stage integrity checks that catch six more failure modes beyond priority drift.
+
+### The 14 hardening items
+
+| ID | Description | Catches |
+|---|---|---|
+| A1 | New `preflight` stage 0 between manifest and research stages | Priority-drift failure mode entirely |
+| A2 | Manifest schema requires `advances_target` field | Drafter can't ship without naming the target |
+| A3 | Manifest schema requires `authorizing_source` field (file:line in control plane) | Cited target must exist verbatim |
+| A4 | `out_of_scope` action class hard-blocks (deferred to v1.2.1) | Mid-run scope drift |
+| A5 | `override_active_target` field, ledger-logged | Explicit, expensive escape hatch |
+| A6 | `skills/run/SKILL.md` names control plane as required pre-read | Hard rule, not a suggestion |
+| B1 | `check_manifest_paths.py` filesystem-verifies all cited paths | Hallucinated or stale file references |
+| B2 | Drafter must check `git status` before drafting (rule in role file) | Dirty tree silently absorbed into manifest |
+| B3 | `target_repos` field — multi-repo manifest support | Umbrella + sibling work in lockstep |
+| C1 | `STAGE_DONE: <stage>` markers required in `run.log` (enforced) | Stage completion lies (Haiku drift class) |
+| C4 | Critic per-lens evidence requirement enforced (`check_critic_evidence.py`) | Rubber-stamp "no findings" lenses |
+| D1 | Manifest SHA-256 pinned at preflight, verified at policy stage | Mid-run manifest mutation |
+| D2 | Multi-repo `allowed_paths` enforcement | Sibling-repo scope drift |
+| E1 | Manager-decision must include `## Resolution per finding` table | Manager rubber-stamp on un-resolved findings |
+| G1 | `preflight_infrastructure.py` (Phase 0 module audit) wired into module-release.yaml as `phase0` | Pre-existing infrastructure preflight is now gate-blocking |
+
+(15th item — I1, the `/run` E2E test — is deferred to v1.2.1 with explicit scope rationale below.)
+
+### Added
+
+- **`scripts/check_active_target.py`** — Reads `.agent-workflows/PROJECT_CONTROL_PLANE.md` (or `ACTIVE_WORK_QUEUE.md` / `docs/RELEASE_PLAN.md` / `docs/PROJECT_CONTROL_PLANE.md` as fallbacks), extracts the named active target, and compares against the manifest's `advances_target`. Mismatch returns `PRIORITY_DRIFT` exit 1. Override path via `override_active_target` (≥60 chars rationale) returns `OVERRIDE_ACCEPTED` exit 0 with ledger logging at `.agent-workflows/scope-overrides.md`. No control plane = informational mode, exit 0 (greenfield-friendly).
+- **`scripts/check_manifest_paths.py`** — Filesystem-verifies every `allowed_paths` entry, every `target_repos[].path`, every `expected_outputs` entry, and the `authorizing_source` file:line citation. Catches hallucinated paths, stale file references, off-by-one line citations.
+- **`scripts/check_stage_done.py`** — Reads `.agent-runs/<run-id>/run.log` and verifies a `STAGE_DONE: <stage>` line exists for every LLM-owned stage that should have completed. Supports `--through <stage>` for mid-run progress checks. Closes v1.1.1 open followup #1.
+- **`scripts/check_critic_evidence.py`** — Walks the critic report's six required lenses (UX/Tests/Engineering/Docs/QA/Performance) and verifies each has either at least one finding bullet or at least one citation (file path with extension, command in backticks, or line reference). Empty "no findings" claims fail the gate.
+- **`scripts/check_manager_evidence.py`** — Validates `manager-decision.md` has a verdict (PROMOTE/REPLAN/BLOCK), a `## Resolution per finding` section, and a per-finding row for every critic `C-N` and drift `D-N` finding. PROMOTE with any `blocked` disposition is rejected.
+- **`scripts/check_manifest_immutable.py`** — Two-mode: `--pin` captures SHA-256 of manifest.yaml at preflight; `--check` verifies the SHA hasn't moved at later stages. Catches mid-run manifest mutation. Wired into `run_all.py`.
+- **`scripts/run_preflight.py`** — Orchestrator that runs all preflight checks in sequence (schema → active_target → manifest_paths → manifest_immutable --pin). Wired into `feature.yaml`, `bugfix.yaml`, and `module-release.yaml` as stage 0.5.
+
+### Changed
+
+- **`pipelines/manifest-template.yaml`** — Adds required fields `advances_target` and `authorizing_source`, optional fields `override_active_target` and `target_repos`. Each has an inline-comment usage block explaining the v1.2.0 contract.
+- **`pipelines/roles/manifest-drafter.md`** — Hard rules add: read control plane first (Category 0 in the source-walking protocol); check `git status` before drafting; cite `authorizing_source` by file:line; never set `override_active_target` unilaterally; append `STAGE_DONE: manifest` to run.log.
+- **`pipelines/roles/critic.md`** — Each adversarial lens now has an explicit `Evidence:` requirement. Six lenses (UX/Tests/Engineering/Docs/QA/Performance) named as required headings. Finding IDs `C-N` required for downstream manager-decision linking.
+- **`pipelines/roles/manager.md`** — Manager-decision must include `## Resolution per finding` table with verdict-dispositions per critic and drift finding. PROMOTE with any `blocked` disposition is rejected.
+- **`pipelines/roles/researcher.md`, `planner.md`, `test-writer.md`, `executor.md`, `verifier.md`, `drift-detector.md`** — Each role's "Output checklist" now requires `STAGE_DONE: <stage>` as the final action.
+- **`pipelines/feature.yaml`, `pipelines/bugfix.yaml`, `pipelines/module-release.yaml`** — New `preflight` (or `preflight-priority` for module-release) stage runs between manifest gate and researcher. Stops priority-drift at $0 cost.
+- **`scripts/check_manifest_schema.py`** — Validates new v1.2.0 fields: `advances_target` (required, ≥8 chars), `authorizing_source` (required unless override present; `path:line` format), `override_active_target` (optional but ≥60 chars when present), `target_repos` (optional list with per-repo path+allowed_paths shape).
+- **`scripts/check_allowed_paths.py`** — Honors `target_repos` multi-repo shape. For each declared sibling repo, walks its working-tree diff and enforces that sibling's allowed_paths. Requires PyYAML for multi-repo mode (single-repo path is unchanged and yaml-free).
+- **`scripts/run_all.py`** — Adds `check_manifest_immutable --check` (D1) and `check_stage_done --through execute` (C1) to the policy stage's check sequence.
+- **`skills/run/SKILL.md`** — New top-line hard rule: read control plane before drafting.
+
+### Verified
+
+- pytest full suite: **58 passed in 5.04s** (free tier, up from 24 in v1.1.2). 9 of those are the existing pre-v1.2.0 schema tests; 49 are new tests across the six new policy scripts.
+- New test files: `tests/test_check_active_target.py` (9), `tests/test_check_manifest_paths.py` (8), `tests/test_check_manifest_immutable.py` (5), `tests/test_check_stage_done.py` (4), `tests/test_check_critic_and_manager_evidence.py` (8).
+- Bundled payload at `skills/pipeline-init/references/pipeline-payload/` synced 1:1 with `pipelines/` and `scripts/` source-of-truth.
+
+### Deferred to v1.2.1 (or later)
+
+- **I1: `/run` E2E test.** v1.1.1 added cleanroom-smoke (covers `/pipeline-init`); v1.2.0 was scoped to add an equivalent for `/run`. The test is large (requires fixture project + 3-turn multi-gate orchestration + 11-stage artifact assertion + ~$0.05–0.10 API spend per run) and is belt-and-suspenders on top of the 49 new unit tests that cover each gate's behavior in isolation. Deferred to v1.2.1 to ship v1.2.0's load-bearing fixes promptly. The gap is honestly named here so it doesn't disappear.
+- **A4: `out_of_scope` action class hard-blocks executor.** Requires changes to action-classification.yaml + executor-side intercept handling. The current `check_allowed_paths.py` catches scope drift at the policy stage (post-execute); a true mid-run hard-block requires more careful wiring through the judge layer. Deferred.
+
+### Migration
+
+Existing projects using agent-pipeline-claude v1.1.x need to add two new fields to their manifests:
+
+- `advances_target`: the active-target string from your project's control plane (or a short summary if no control plane exists)
+- `authorizing_source`: file:line citation, e.g. `.agent-workflows/PROJECT_CONTROL_PLANE.md:42`
+
+Re-run `/agent-pipeline-claude:pipeline-init` (choose option `c` — refresh everything) to get the v1.2.0 role files + policy scripts. Existing manifests can be edited to add the new fields; if the project has no control plane doc, leave `authorizing_source` empty (preflight runs in informational mode).
+
 ## [1.1.2] — 2026-05-12
 
 **Deterministic $0 scaffold test, plus auxiliary scaffolder helper.**

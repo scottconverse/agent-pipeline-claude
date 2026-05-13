@@ -36,3 +36,4 @@ The plan is complete only when:
 - Every test in §4 names a specific contract, not just "test X works."
 - Every risk in §5 names a specific mitigation, not "be careful."
 - A test-writer reading only this plan can produce failing tests without consulting any other source.
+- Append `STAGE_DONE: plan` to `.agent-runs/<run-id>/run.log` as your final action. v1.2.0 hardening rule; `scripts/policy/check_stage_done.py` enforces.

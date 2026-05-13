@@ -19,6 +19,11 @@ stages:
     artifact: manifest.yaml
     gate: human_approval
 
+  - name: preflight
+    role: pipeline
+    command: python scripts/policy/run_preflight.py --run {run_id}
+    artifact: preflight-report.md
+
   - name: research
     role: researcher
     artifact: research.md

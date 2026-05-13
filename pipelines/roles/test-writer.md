@@ -39,3 +39,4 @@ The stage is complete only when:
 - Every test fails when the project's standard test runner is invoked (e.g., `pytest <new-file>`, `npm test`, etc.).
 - Every failure mode is documented in failing-tests-report.md.
 - No file outside `tests/` and `.agent-runs/<run-id>/` was changed.
+- Append `STAGE_DONE: test-write` to `.agent-runs/<run-id>/run.log` as your final action. v1.2.0 hardening rule; `scripts/policy/check_stage_done.py` enforces.

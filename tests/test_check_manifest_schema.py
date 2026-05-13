@@ -77,7 +77,7 @@ class TestVersionFlag:
     not stale v0.5.x copies from an earlier /pipeline-init.
     """
 
-    def test_version_reports_1_1_2(self) -> None:
+    def test_version_reports_1_2_0(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SCHEMA_SCRIPT), "--version"],
             capture_output=True,
@@ -85,7 +85,7 @@ class TestVersionFlag:
             check=False,
         )
         assert result.returncode == 0
-        assert "agent-pipeline-claude 1.1.2" in result.stdout
+        assert "agent-pipeline-claude 1.2.0" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +145,8 @@ VALID_MANIFEST = """
       definition_of_done: "QA-005 ledger row flips from Major-open to Closed with a cited real-Postgres race test and a store-level retry. Full pytest passes on the working branch; ruff plus mypy clean; 5-lens self-audit clean before push; CI 6/6 green on the new SHA."
       director_notes:
         - "researcher: read docs/research/v04-slice1-design.md QA-005 section first"
+      advances_target: "Close QA-005 conflict-409 race"
+      authorizing_source: ".agent-workflows/PROJECT_CONTROL_PLANE.md:42"
 """
 
 

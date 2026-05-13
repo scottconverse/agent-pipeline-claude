@@ -65,3 +65,4 @@ The stage is complete only when:
 - `python scripts/policy/run_all.py --run <run-id>` exits 0.
 - The implementation-report.md cites every commit by sha and shows the green test output.
 - For each file you touched, a pre-edit fact-forcing block exists — either in `.agent-runs/<run-id>/notes/pre-edit-<filename>.md` or inlined into the implementation-report.md preamble. The drift-detector and critic stages check for this; a missing block on any touched file is a finding.
+- Append `STAGE_DONE: execute` to `.agent-runs/<run-id>/run.log` as your final action. v1.2.0 hardening rule; `scripts/policy/check_stage_done.py` enforces.

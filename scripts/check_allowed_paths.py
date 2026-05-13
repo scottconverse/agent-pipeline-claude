@@ -18,6 +18,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import yaml  # type: ignore
+    _HAS_YAML = True
+except ImportError:
+    _HAS_YAML = False
+
 def _find_repo_root() -> Path:
     """Resolve the repo root regardless of which supported layout the
     script is running from. Same logic as check_no_todos.py (PR #7).
@@ -128,6 +134,74 @@ def _is_under(path: str, prefixes: list[str]) -> bool:
     return False
 
 
+def _load_target_repos(manifest_path: Path) -> list[dict] | None:
+    """Return the manifest's target_repos list, or None if not present / parse failed.
+
+    Requires PyYAML for the nested-object parse. Without yaml, multi-repo
+    enforcement is unsupported and check_allowed_paths falls back to
+    single-repo behavior.
+    """
+    if not _HAS_YAML:
+        return None
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    pipeline_run = data.get("pipeline_run", data) if isinstance(data, dict) else {}
+    if not isinstance(pipeline_run, dict):
+        return None
+    target_repos = pipeline_run.get("target_repos")
+    if not isinstance(target_repos, list) or not target_repos:
+        return None
+    out: list[dict] = []
+    for entry in target_repos:
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            out.append(entry)
+    return out or None
+
+
+def _git_changed_files_in(repo_path: Path) -> list[str]:
+    """Return paths changed in a specific repo's working tree relative to HEAD."""
+    if not repo_path.exists() or not (repo_path / ".git").exists():
+        # Not a git repo — treat as no changes (the run can't have touched it via git)
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _check_sibling_repos(target_repos: list[dict], umbrella_root: Path) -> list[tuple[str, str]]:
+    """For each declared sibling repo, verify its diff stays within its allowed_paths.
+
+    Returns a list of (path, reason) violation tuples.
+    """
+    violations: list[tuple[str, str]] = []
+    for entry in target_repos:
+        repo_rel = entry.get("path")
+        if not isinstance(repo_rel, str) or not repo_rel.strip():
+            continue
+        allowed = entry.get("allowed_paths", [])
+        if not isinstance(allowed, list):
+            continue
+        allowed_str = [s for s in allowed if isinstance(s, str)]
+        repo_abs = (umbrella_root / repo_rel).resolve()
+        changed = _git_changed_files_in(repo_abs)
+        for changed_path in changed:
+            if allowed_str and not _is_under(changed_path, allowed_str):
+                violations.append(
+                    (f"{repo_rel}/{changed_path}", f"outside target_repos[{repo_rel}].allowed_paths")
+                )
+    return violations
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -144,38 +218,68 @@ def main() -> int:
 
     manifest_path = RUN_DIR / args.run / "manifest.yaml"
     allowed, forbidden = _load_manifest_lists(manifest_path)
+    target_repos = _load_target_repos(manifest_path)
 
-    if not allowed and not forbidden:
+    if not allowed and not forbidden and not target_repos:
         print(
-            "check_allowed_paths: manifest has empty allowed_paths AND forbidden_paths — "
-            "no constraints to enforce. PASS."
+            "check_allowed_paths: manifest has empty allowed_paths AND forbidden_paths AND no "
+            "target_repos — no constraints to enforce. PASS."
         )
         return 0
 
     changed = _git_changed_files()
-    if not changed:
-        print("check_allowed_paths: no changed files in working tree. PASS.")
-        return 0
 
     violations: list[tuple[str, str]] = []
-    for path in changed:
-        if forbidden and _is_under(path, forbidden):
-            violations.append((path, "matches forbidden_paths"))
-            continue
-        if allowed and not _is_under(path, allowed):
-            violations.append((path, "outside allowed_paths"))
+    if changed:
+        for path in changed:
+            if forbidden and _is_under(path, forbidden):
+                violations.append((path, "matches forbidden_paths"))
+                continue
+            if allowed and not _is_under(path, allowed):
+                violations.append((path, "outside allowed_paths"))
+
+    # Multi-repo: check each declared sibling repo's diff against its allowed_paths
+    sibling_violations: list[tuple[str, str]] = []
+    sibling_changed_total = 0
+    if target_repos:
+        sibling_violations = _check_sibling_repos(target_repos, REPO_ROOT)
+        for entry in target_repos:
+            repo_rel = entry.get("path", "")
+            repo_abs = (REPO_ROOT / repo_rel).resolve()
+            sibling_changed_total += len(_git_changed_files_in(repo_abs))
+        violations.extend(sibling_violations)
+    elif target_repos is None and _HAS_YAML is False:
+        # If yaml isn't available, we can't enforce multi-repo. Warn.
+        # (Single-repo manifests work fine without yaml.)
+        pass
 
     if violations:
         print("check_allowed_paths: FAIL")
         print(f"  manifest: {manifest_path}")
-        print(f"  allowed_paths: {allowed or '(none)'}")
-        print(f"  forbidden_paths: {forbidden or '(none)'}")
+        print(f"  allowed_paths (umbrella): {allowed or '(none)'}")
+        print(f"  forbidden_paths (umbrella): {forbidden or '(none)'}")
+        if target_repos:
+            print(f"  target_repos: {len(target_repos)} sibling(s)")
+            for entry in target_repos:
+                print(f"    - path: {entry.get('path')}  allowed: {entry.get('allowed_paths', [])}")
         print("  violations:")
         for path, reason in violations:
             print(f"    {path}  ({reason})")
         return 1
 
-    print(f"check_allowed_paths: PASS — {len(changed)} changed file(s), all within allowed_paths.")
+    total_changed = len(changed) + sibling_changed_total
+    if total_changed == 0:
+        print("check_allowed_paths: no changed files in any tracked repo. PASS.")
+    else:
+        scope_note = (
+            f" (umbrella: {len(changed)}, siblings: {sibling_changed_total})"
+            if target_repos
+            else ""
+        )
+        print(
+            f"check_allowed_paths: PASS — {total_changed} changed file(s)"
+            f"{scope_note}, all within declared paths."
+        )
     return 0
 
 

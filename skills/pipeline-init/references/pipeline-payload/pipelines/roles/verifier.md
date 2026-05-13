@@ -51,3 +51,4 @@ The stage is complete only when:
 - The lint, format, type, and policy outputs are pasted (head/tail).
 - Every NOT MET / PARTIAL is justified with a file/test citation.
 - The report is publishable as-is — the manager will quote it verbatim in their decision.
+- Append `STAGE_DONE: verify` to `.agent-runs/<run-id>/run.log` as your final action. v1.2.0 hardening rule; `scripts/policy/check_stage_done.py` enforces.

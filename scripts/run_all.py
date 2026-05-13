@@ -28,9 +28,14 @@ THIS_DIR = Path(__file__).resolve().parent
 # Add project-specific checks here (e.g., a custom check_module_boundaries.py).
 CHECKS: list[tuple[str, list[str]]] = [
     ("check_manifest_schema", ["check_manifest_schema.py"]),
+    # v1.2.0: cross-stage integrity — manifest SHA must match the pin
+    # taken at preflight. Catches mid-run manifest mutation.
+    ("check_manifest_immutable", ["check_manifest_immutable.py", "--check"]),
     ("check_allowed_paths", ["check_allowed_paths.py"]),
     ("check_no_todos", ["check_no_todos.py"]),
     ("check_adr_gate", ["check_adr_gate.py"]),
+    # v1.2.0: STAGE_DONE markers required through `execute` by policy stage.
+    ("check_stage_done", ["check_stage_done.py", "--through", "execute"]),
 ]
 
 
@@ -51,7 +56,12 @@ def main() -> int:
 
     extra_for_run_consumers = ["--run", args.run] if args.run else []
     # Checks that consume the run id (read manifest at .agent-runs/<run>/manifest.yaml).
-    run_consumers = {"check_allowed_paths", "check_manifest_schema"}
+    run_consumers = {
+        "check_allowed_paths",
+        "check_manifest_schema",
+        "check_manifest_immutable",
+        "check_stage_done",
+    }
 
     results: list[tuple[str, bool, str]] = []
     for name, script_args in CHECKS:

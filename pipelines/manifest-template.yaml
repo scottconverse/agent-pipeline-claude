@@ -80,3 +80,67 @@ pipeline_run:
   #   - "researcher: explicitly check tests/ for sync vs async assumptions"
   #   - "researcher: surface whether to extend Protocol X or create Y"
   director_notes: []
+
+  # ---------------------------------------------------------------------
+  # v1.2.0 priority-drift gate fields (REQUIRED)
+  # ---------------------------------------------------------------------
+  #
+  # These fields exist because the v1.1.x failure mode was: drafter takes
+  # the human's task description verbatim and produces a faithful
+  # manifest — for the WRONG WORK. The manifest gate caught well-formed
+  # manifests but didn't catch off-priority ones. v1.2.0 makes the
+  # priority check machine-enforceable.
+
+  # The exact "Active target:" string from the project's control plane.
+  # check_active_target.py reads .agent-workflows/PROJECT_CONTROL_PLANE.md
+  # (or ACTIVE_WORK_QUEUE.md as fallback) and compares against this value.
+  # Mismatch = PRIORITY_DRIFT exit, run stops before research stage.
+  #
+  # Example: "Installer/macOS certification follow-up"
+  advances_target: ""
+
+  # File:line citation pointing at the exact line in the control plane
+  # that authorizes this work. check_manifest_paths.py verifies the
+  # file exists and the line number is in range.
+  #
+  # REQUIRED unless override_active_target is set with a 2+ sentence reason.
+  #
+  # Example: ".agent-workflows/PROJECT_CONTROL_PLANE.md:83"
+  authorizing_source: ""
+
+  # OPTIONAL escape valve. If set to a string of >= 60 characters
+  # (~two sentences), the priority-drift check is logged-but-not-blocked.
+  # The override is appended to .agent-workflows/scope-overrides.md and
+  # surfaces at the manifest gate for explicit OVERRIDE-CONFIRMED.
+  #
+  # Empty / short reasons fail closed. The override is expensive by
+  # design — visible, logged, requires verbal confirmation at the gate.
+  override_active_target: ""
+
+  # ---------------------------------------------------------------------
+  # v1.2.0 multi-repo (target_repos) — OPTIONAL
+  # ---------------------------------------------------------------------
+  #
+  # For runs that touch sibling repos (umbrella + module work, lockstep
+  # releases, cross-repo coordination). Omit entirely for single-repo
+  # runs — `allowed_paths` above is the umbrella scope by default.
+  #
+  # When `target_repos` is set, check_allowed_paths.py walks each
+  # sibling's working-tree diff and enforces that sibling's allowed_paths.
+  # The umbrella's `allowed_paths` continues to apply at the umbrella root.
+  #
+  # Example (umbrella PR + civicrecords-ai PR + civicclerk PR in lockstep):
+  #
+  # target_repos:
+  #   - path: ../civicrecords-ai
+  #     allowed_paths:
+  #       - README.md
+  #       - USER-MANUAL.md
+  #   - path: ../civicclerk
+  #     allowed_paths:
+  #       - README.md
+  #       - USER-MANUAL.md
+  #
+  # Multi-repo enforcement requires PyYAML. Without yaml, check_allowed_paths
+  # falls back to single-repo behavior (umbrella diff only).
+  target_repos: []

@@ -50,14 +50,39 @@ Write **`.agent-runs/<run-id>/critic-report.md`** with these sections:
 
 6. **Minor findings** — bulleted list, one line each. Path, brief description, recommended destination.
 
-7. **Adversarial lenses** — explicitly walk these six lenses and state what you checked in each. For each lens, either name specific findings or state "no findings against this lens" with evidence (what you grep'd, what you read, what you compared).
+7. **Adversarial lenses** — explicitly walk these six lenses. **Each lens MUST have an `Evidence:` subsection (v1.2.0 hardening rule, enforced by `scripts/policy/check_critic_evidence.py`).** Evidence is one of:
+   - At least one specific finding bullet under the lens, OR
+   - At least one verifiable citation: a file path with line number (e.g. `src/auth.py:42`), a verifying command in backticks (e.g. `` `grep -r "pull_request_target" .github/` ``), or a specific line reference (e.g. `line 142 of verifier-report.md`).
 
-   - **Engineering** — incorrect architecture, race conditions, N+1 queries, exception swallowing, missing rollback, missing idempotency, security vectors. Grep `civiccast/` (or the project's source) for the specific patterns the manifest goal touches.
-   - **UX** — every user-visible string, every rendered state (loading, success-with-data, success-empty, error, partial). If the work doesn't touch UI, say so explicitly — do not skip silently.
-   - **Tests** — does each new test ASSERT, not just exercise? Are skip predicates present? Does the suite cover edge cases or only the happy path? Grep new test files for `pytest.mark.skip`, `xfail`, `xit`, `pass` with no assert.
-   - **Docs** — every doc change consistent with the code? CHANGELOG entry matches what shipped? README and USER-MANUAL updated where the surface changed? Status-word abuse — anything called "done", "complete", "ready", "shippable" without verification?
-   - **QA** — read the final state across files cold. Cross-file contradictions? Top-level ledgers/counts vs row-level evidence? Anything the executor's confidence asserts that the durable artifacts don't support?
-   - **Scope** — did the executor stay inside `allowed_paths`? Touch `forbidden_paths`? Drift toward `non_goals`? Verify by reading `implementation-report.md`'s commit list against the manifest.
+   "No findings against this lens" is acceptable ONLY when paired with citation evidence showing what was checked. Empty assertions fail the gate. Required lens names (case-sensitive heading text expected):
+
+   ### Engineering
+   Incorrect architecture, race conditions, N+1 queries, exception swallowing, missing rollback, missing idempotency, security vectors. Grep the project's source for the specific patterns the manifest goal touches.
+   **Evidence:** required.
+
+   ### UX
+   Every user-visible string, every rendered state (loading, success-with-data, success-empty, error, partial). If the work doesn't touch UI, say so explicitly AND show evidence (e.g. `git diff --stat shows no changes under src/components/` or equivalent).
+   **Evidence:** required.
+
+   ### Tests
+   Does each new test ASSERT, not just exercise? Are skip predicates present? Does the suite cover edge cases or only the happy path? Grep new test files for `pytest.mark.skip`, `xfail`, `xit`, `pass` with no assert.
+   **Evidence:** required.
+
+   ### Docs
+   Every doc change consistent with the code? CHANGELOG entry matches what shipped? README and USER-MANUAL updated where the surface changed? Status-word abuse — anything called "done", "complete", "ready", "shippable" without verification?
+   **Evidence:** required.
+
+   ### QA
+   Read the final state across files cold. Cross-file contradictions? Top-level ledgers/counts vs row-level evidence? Anything the executor's confidence asserts that the durable artifacts don't support?
+   **Evidence:** required.
+
+   ### Performance
+   New regressions in hot paths? Added N+1 queries? Unbounded loops? Synchronous calls where async was the established pattern? Bundle-size regressions for frontend changes? Grep diff hunks for suspect patterns.
+   **Evidence:** required.
+
+   ### Scope
+   Did the executor stay inside `allowed_paths`? Touch `forbidden_paths`? Drift toward `non_goals`? Verify by reading `implementation-report.md`'s commit list against the manifest.
+   **Evidence:** required (cite the diff or implementation-report.md).
 
 8. **What the verifier missed** — name specific items in `verifier-report.md` that were marked MET or NOT APPLICABLE that you disagree with. For each, cite your evidence. If you agree with everything the verifier said, state "Verifier findings independently confirmed" with one-line evidence per criterion.
 
@@ -82,7 +107,9 @@ Write **`.agent-runs/<run-id>/critic-report.md`** with these sections:
 The stage is complete only when:
 
 - The findings count line in §2 matches the actual count of findings reported in §3–§6.
+- Every finding (blocker / critical / major / minor) has an ID of the form `C-N` (e.g. `C-1`, `C-2`) so the manager can reference it in `manager-decision.md`.
 - Every blocker finding has evidence (file:line) and a smallest-fix proposal.
-- Every adversarial lens in §7 has explicit per-lens text — no "see above" hand-waves.
+- Every adversarial lens in §7 has an `Evidence:` subsection with at least one verifiable citation. `check_critic_evidence.py` fails the gate without it.
 - §10 ends with one of `PROMOTE`, `BLOCK`, `REPLAN` and cites the findings that drive it.
 - The report is publishable as-is — the manager (whether automated or human) will read it verbatim.
+- Append `STAGE_DONE: critique` to `.agent-runs/<run-id>/run.log` as your final action. `check_stage_done.py` enforces (v1.2.0).

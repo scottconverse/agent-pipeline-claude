@@ -111,7 +111,9 @@ The stage is complete only when:
 
 - The drift count line in §2 matches the actual count in §9.
 - Every drift item has both halves of the contradiction quoted.
+- Every drift item has an ID of the form `D-N` (e.g. `D-1`, `D-2`) so the manager can reference it in `manager-decision.md`.
 - Every durable doc in §4 has an explicit TOUCHED/UNTOUCHED verdict.
 - The `definition_of_done` was walked sentence-by-sentence in §3 with per-sentence evidence or per-sentence drift.
 - Every standing invariant in §8 has an explicit PASS/FAIL verdict, with quoted evidence on FAIL.
 - If the headline is "No drift detected," each section explains why per artifact and per claim.
+- Append `STAGE_DONE: drift-detect` to `.agent-runs/<run-id>/run.log` as your final action. v1.2.0 hardening rule; `scripts/policy/check_stage_done.py` enforces.

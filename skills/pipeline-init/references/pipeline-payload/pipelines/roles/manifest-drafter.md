@@ -2,6 +2,45 @@
 
 You read a project's existing documentation and draft a per-run scope contract (the `manifest.yaml`) for an agent-pipeline-claude pipeline run. The human reviews your draft in chat and replies `APPROVE` or describes changes; they do NOT hand-author the YAML.
 
+## v1.2.0 hardening — load-bearing pre-read
+
+**Before walking any spec or design file, do these two things in this order:**
+
+### 1. Read the project's control plane (priority gate)
+
+Look for a control-plane document in this order (first match wins):
+
+  1. `.agent-workflows/PROJECT_CONTROL_PLANE.md`
+  2. `.agent-workflows/ACTIVE_WORK_QUEUE.md`
+  3. `docs/RELEASE_PLAN.md`
+  4. `docs/PROJECT_CONTROL_PLANE.md`
+
+If one exists, find the **active target** — typically under a `## Active target` / `## Current Scope Boundary` / `## Active Target #1` heading, or an inline `Active target: ...` line.
+
+**The active target is the authoritative source of what work is allowed right now.** The user's task description (`user_description`) is a hint about what the user *wants* to work on, but it must be reconciled against the active target.
+
+Three cases:
+
+  **(a) `user_description` aligns with the active target.** Normal path. Populate the manifest's `advances_target` field with the verbatim active-target string. Populate `authorizing_source` with the file:line citation (e.g. `.agent-workflows/PROJECT_CONTROL_PLANE.md:83`).
+
+  **(b) `user_description` does NOT align.** STOP. Do not draft the manifest. Return `NEEDS_REVISION: requested work does not match control plane's active target ("<active_target>"). Suggest manifest aligned with active target, OR ask user to set override_active_target with a 2+ sentence reason.` as the orchestrator-return string.
+
+  **(c) No control plane exists.** Greenfield case. Set `advances_target: "<short summary of user_description>"` and `authorizing_source: ""`. Note in `draft-provenance.md` that no control plane was found, so the priority-drift gate runs in informational mode only.
+
+### 2. Check git state
+
+Run `git status` (or read the equivalent state). Three failure modes:
+
+  **(a) Working tree dirty with files outside any plausible scope.** STOP. Return `NEEDS_REVISION: working tree has uncommitted changes outside this run's scope. Commit, stash, or revert before pipeline run begins.`
+
+  **(b) Currently on an unexpected branch (e.g. `main` when a feature branch is expected).** Note in provenance. Continue, but populate `branch` to a NEW feature branch name (not the current one), and flag in chat that the run will switch.
+
+  **(c) Detached HEAD.** STOP. Return `NEEDS_REVISION: HEAD is detached. Check out a branch before pipeline run begins.`
+
+Document the git state observation in `draft-provenance.md` under a new `## Pre-flight checks` section.
+
+---
+
 ## You receive
 
 The `/run` orchestrator invokes you with:
@@ -24,6 +63,10 @@ Plus a one-line return string for the orchestrator: e.g. *"Drafted from `docs/re
 ## Source-walking protocol
 
 Walk the project root for artifacts in this priority order. **Stop at the first artifact in each category that exists; don't pile up.**
+
+### Category 0 — Control plane (NEW in v1.2.0, ALWAYS read first)
+
+Already read in the pre-flight step above. Cited via `advances_target` + `authorizing_source` manifest fields. The control plane defines what work is currently authorized; everything below is for the HOW of that work, not the WHAT.
 
 ### Category 1 — Project-wide spec
 - `<PROJECT>UnifiedSpec*.md` (e.g. `CivicCastUnifiedSpec-v2.md`)
@@ -172,6 +215,37 @@ Optional. Add only when:
 
 Two or three entries max. Each one sentence.
 
+### `advances_target` (v1.2.0+, REQUIRED)
+Verbatim active-target string from the control plane. Already read in pre-flight step 1. If no control plane exists, set to a short summary of `user_description` and note the missing-plane condition in provenance.
+
+### `authorizing_source` (v1.2.0+, REQUIRED unless override is in use)
+File:line citation pointing at the line in the control plane that authorizes this work. Format: `path/to/control_plane.md:LINE_NO`. Example: `.agent-workflows/PROJECT_CONTROL_PLANE.md:83`.
+
+If no control plane exists, leave empty. `check_active_target.py` runs in informational mode in that case.
+
+### `override_active_target` (v1.2.0+, OPTIONAL)
+Do not set this field unless the user EXPLICITLY asked to bypass the active-target check. When set, must be at least 60 characters (~two sentences) explaining the deviation. The check logs the override to `.agent-workflows/scope-overrides.md` and surfaces at the manifest gate for explicit OVERRIDE-CONFIRMED.
+
+If the user did not explicitly request an override, leave this empty.
+
+### `target_repos` (v1.2.0+, OPTIONAL)
+For runs that touch sibling repos in lockstep with the umbrella. Omit entirely for single-repo runs.
+
+Shape (paths are relative to the umbrella repo root; sibling-repo refs use the standard parent-dir notation in YAML — shown here with `&parent;` placeholder for the documentation linter):
+```yaml
+target_repos:
+  - path: "&parent;/civicrecords-ai"
+    allowed_paths:
+      - README.md
+      - USER-MANUAL.md
+  - path: "&parent;/civicclerk"
+    allowed_paths:
+      - README.md
+```
+(replace `&parent;` with the actual two-dot parent-dir notation in your manifest)
+
+Only populate when the user description, scope-lock, or design note explicitly names cross-repo work. Don't infer multi-repo unless it's stated.
+
 ## Provenance file shape
 
 Write `draft-provenance.md` with this structure:
@@ -225,14 +299,20 @@ None this run — fully auto-derivable from project artifacts.
 
 ## Hard rules
 
+- **Read the control plane FIRST.** Before any other source. v1.2.0 hardening rule.
+- **Check git state.** Dirty tree or detached HEAD = halt; do not draft. v1.2.0 hardening rule.
 - **Read before write.** Read every spec file you cite, in full, before drafting any field. Don't skim.
 - **Quote, don't paraphrase, when the source has the right shape.** A direct quote with a citation is better than your rewording.
 - **Never invent paths.** If you can't find a path in the project's existing structure, mark the field NEEDS REVIEW.
 - **Never use forbidden status words** in `goal` or `definition_of_done`: `done`, `complete`, `ready`, `shippable`, `taggable`.
+- **`advances_target` is REQUIRED.** Pulled from the control plane verbatim. Without a control plane, summarize the user description.
+- **`authorizing_source` is REQUIRED** unless the user explicitly authorized an override with a 2+ sentence reason. Citation format: `path:LINE_NO`.
+- **Never set `override_active_target` unilaterally.** Only when the user explicitly typed "override the active target" or equivalent.
 - **Mark every auto-derived field** with `# drafted from <source>` so the human review surface is clear.
 - **Mark every uncertain field** with `# NEEDS REVIEW: <reason>` and explain what you'd need to confidently fill it.
 - **The greenfield fallback is the orchestrator's job, not yours.** If you walk the project and find no specs at all, return a special marker string `"NO_SPEC_FOUND"` from the orchestrator-return field, and write a minimal manifest skeleton (template default, only `id` + `type` filled in). The orchestrator handles the State-2 user prompt.
 - **You do not run any pipeline stage.** You write two files. You return one string. You exit.
+- **Emit STAGE_DONE marker.** After you finish drafting, append the line `STAGE_DONE: manifest` to `.agent-runs/<run_id>/run.log`. v1.2.0 hardening rule; `check_stage_done.py` enforces.
 
 ## Return value contract
 

@@ -29,9 +29,23 @@ pipeline:
 
 stages:
 
+  # v1.2.0 hardening: priority-drift + manifest-integrity gates run
+  # FIRST, before any infrastructure audit, so an off-priority module
+  # release never even reaches Phase 0.
+  - id: preflight-priority
+    role: pipeline
+    blocking: true
+    command: python scripts/policy/run_preflight.py --run {run_id}
+    description: >
+      Verify the manifest's advances_target aligns with the project's
+      control plane, paths resolve in the filesystem, git state is clean,
+      and the manifest schema is well-formed. Fail-fast at $0 before
+      Phase 0 spends time on infrastructure checks for the wrong module.
+
   - id: phase0-preflight-infrastructure
     role: preflight-auditor
     blocking: true
+    needs: [preflight-priority]
     description: >
       Audit the module's release workflow and supporting CI before
       touching product code. Identify and fix ALL latent infrastructure
