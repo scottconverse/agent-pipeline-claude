@@ -495,7 +495,7 @@ A `role: pipeline` stage that runs `scripts/auto_promote.py`. It reads the artif
 3. Drift-clean: zero blocker drift items.
 4. Policy-passed: `POLICY: ALL CHECKS PASSED` in `policy-report.md`.
 5. Judge-clean: zero `judged_block` and zero `human_blocked` dispositions (vacuous when the v0.4 judge layer is inactive).
-6. Tests-passed: a recognizable `N passed[, 0 failed]` or `all tests passed` signal in `implementation-report.md`.
+6. Tests-passed: a recognizable `N passed[, 0 failed]` or `all tests passed` signal in `implementation-report.md` (vacuous when the manifest's `forbidden_paths` covers the test directory — tests were out of scope for the run, so no signal is expected).
 
 When all six pass, the script writes a preset `manager-decision.md` with `**Decision: PROMOTE**` and a citation block naming the evidence for each condition. The manager stage detects the preset (per Handler 4 in `skills/run/references/run.md`) and short-circuits the human-approval gate, advancing the pipeline automatically.
 

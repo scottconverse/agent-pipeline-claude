@@ -231,15 +231,102 @@ def _check_judge(run_dir: Path) -> ConditionResult:
     )
 
 
+_TEST_DIR_PREFIXES = ("tests/", "test/", "tests", "test")
+
+
+def _manifest_forbids_tests(run_dir: Path) -> tuple[bool, list[str]]:
+    """True if the manifest's `forbidden_paths` covers a test directory.
+
+    Used by `_check_tests` to recognize docs-only and tests-out-of-scope
+    runs, where condition 6 should pass vacuously rather than block on
+    the absence of a test-pass signal it could not possibly have.
+
+    Returns (forbids_tests, matching_entries). Empty/missing manifest →
+    (False, []) — strict default, behavior unchanged from v1.3.0.
+    """
+    manifest_path = run_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return False, []
+    text = manifest_path.read_text(encoding="utf-8", errors="replace")
+    in_forbidden = False
+    matches: list[str] = []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if "#" in line:
+            hash_idx = line.find("#")
+            if hash_idx == 0 or line[hash_idx - 1].isspace():
+                line = line[:hash_idx].rstrip()
+        if not line:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("forbidden_paths:"):
+            value_part = stripped[len("forbidden_paths:"):].strip()
+            # Flow style: forbidden_paths: ["tests/", "other/"]  or  forbidden_paths: []
+            if value_part.startswith("["):
+                in_forbidden = False
+                inner = value_part.strip("[]").strip()
+                if inner:
+                    for item in inner.split(","):
+                        entry = item.strip().strip("\"'")
+                        if not entry:
+                            continue
+                        _record_if_test_dir(entry, matches)
+                continue
+            # Block style: forbidden_paths: followed by - entries
+            in_forbidden = True
+            continue
+        if not raw.startswith((" ", "\t")) and stripped.endswith(":"):
+            in_forbidden = False
+            continue
+        if in_forbidden and stripped.startswith("- "):
+            value = stripped[2:].strip().strip("\"'")
+            _record_if_test_dir(value, matches)
+        elif in_forbidden and not stripped.startswith("- "):
+            in_forbidden = False
+    return bool(matches), matches
+
+
+def _record_if_test_dir(value: str, matches: list[str]) -> None:
+    """If `value` resolves to a test directory, append the raw form to matches."""
+    normalized = value.lstrip("/")
+    for prefix in _TEST_DIR_PREFIXES:
+        prefix_with_slash = prefix.rstrip("/") + "/"
+        if normalized == prefix or normalized == prefix.rstrip("/") or normalized.startswith(prefix_with_slash):
+            matches.append(value)
+            return
+
+
 def _check_tests(run_dir: Path) -> ConditionResult:
     """Look in implementation-report.md for a clean test output signal.
 
     Conservative: the report must contain a recognizable "tests passed"
     pattern AND no occurrence of `failed=[1-9]` style failure tokens.
+
+    Vacuous-pass exception (v1.3.1): when the manifest's
+    `forbidden_paths` explicitly forbids the test directory (so the
+    run was barred from running or modifying tests), this condition
+    passes with an explanation when `implementation-report.md` is
+    absent. Mirrors the `_check_judge` vacuous-pass behavior and
+    closes the docs-only false-stop that surfaced in the v1.2.1
+    PROMOTED report.
     """
     path = run_dir / "implementation-report.md"
     if not path.exists():
-        return ConditionResult("tests-passed", False, f"{path.name} missing")
+        forbids, matches = _manifest_forbids_tests(run_dir)
+        if forbids:
+            return ConditionResult(
+                "tests-passed",
+                True,
+                "implementation-report.md absent; manifest forbids test paths "
+                f"({', '.join(matches)}) — tests were out of scope for this run, "
+                "so condition 6 passes without a test-pass signal.",
+            )
+        return ConditionResult(
+            "tests-passed",
+            False,
+            f"{path.name} missing (if tests are out of scope for this run, "
+            "add the test directory to manifest.forbidden_paths)",
+        )
     text = path.read_text(encoding="utf-8", errors="replace")
 
     if re.search(r"\b\d+\s+failed\b", text):
@@ -341,7 +428,7 @@ def _write_report(run_dir: Path, conditions: list[ConditionResult]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.2.1")
+    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.3.1")
     parser.add_argument(
         "--run",
         required=True,

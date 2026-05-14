@@ -161,10 +161,19 @@ def test_run_skill_does_not_require_grant():
 # Version pin
 # ---------------------------------------------------------------------------
 
-def test_plugin_version_is_1_3_0():
+def test_plugin_version_is_1_3_x():
+    """Pins the v1.3 redesign surface, not a literal release. Uses a
+    semver-shape regex so patch releases don't rewrite this test but
+    pre-release tags or malformed strings still fail."""
     import json
+    import re
     plugin = json.loads(_read(REPO_ROOT / ".claude-plugin" / "plugin.json"))
-    assert plugin["version"] == "1.3.0"
+    version = plugin["version"]
+    assert re.fullmatch(r"1\.3\.\d+(?:[-+].+)?", version), (
+        f"plugin.json version is {version!r}; expected 1.3.<patch> "
+        "(optionally with pre-release/build suffix). "
+        "If the redesign is being reverted, update this test deliberately."
+    )
 
 
 def test_changelog_has_v130_entry():

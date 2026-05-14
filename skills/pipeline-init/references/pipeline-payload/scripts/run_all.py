@@ -11,6 +11,13 @@ report line is one of:
   POLICY: ALL CHECKS PASSED
   POLICY: <N> CHECK(S) FAILED
 
+When ``--run`` is given, the same content is also written directly to
+``.agent-runs/<run-id>/policy-report.md`` so the marker line is
+guaranteed to appear in the artifact regardless of how the orchestrator
+captures stdout (v1.3.1 — removes the false-stop where auto-promote
+fails condition 4 because the orchestrator's stdout-to-file capture
+lost the marker, even though the policy gate actually passed).
+
 To add project-specific policy checks, drop them in this directory next
 to the generic ones and add them to the CHECKS list below.
 """
@@ -22,7 +29,22 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+def _find_repo_root() -> Path:
+    """Resolve the repo root for both supported layouts.
+
+    * Plugin source: ``<repo>/scripts/run_all.py`` → parent of scripts/.
+    * Installed:     ``<repo>/scripts/policy/run_all.py`` → two up.
+    """
+    script_dir = Path(__file__).resolve().parent
+    if script_dir.name == "policy" and script_dir.parent.name == "scripts":
+        return script_dir.parents[1]
+    return script_dir.parent
+
+
 THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = _find_repo_root()
+RUN_DIR_BASE = REPO_ROOT / ".agent-runs"
 
 # Order matters only for human readability of the combined report.
 # Add project-specific checks here (e.g., a custom check_module_boundaries.py).
@@ -53,6 +75,9 @@ def _run(check_name: str, script_args: list[str], extra_args: list[str]) -> tupl
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--version", action="version", version="agent-pipeline-claude 1.3.1"
+    )
+    parser.add_argument(
         "--run",
         help="Pipeline run id, passed through to checks that consume the manifest.",
     )
@@ -74,27 +99,40 @@ def main() -> int:
         passed, output = _run(name, script_args, extra)
         results.append((name, passed, output))
 
-    print("=" * 64)
-    print("Policy checks")
-    print("=" * 64)
+    failed = [name for name, passed, _ in results if not passed]
+
+    report_lines: list[str] = []
+    report_lines.append("=" * 64)
+    report_lines.append("Policy checks")
+    report_lines.append("=" * 64)
     for name, passed, output in results:
         status = "PASS" if passed else "FAIL"
-        print(f"\n[{status}] {name}")
+        report_lines.append(f"\n[{status}] {name}")
         if output:
             for line in output.splitlines():
-                print(f"  {line}")
-
-    failed = [name for name, passed, _ in results if not passed]
-    print()
-    print("-" * 64)
+                report_lines.append(f"  {line}")
+    report_lines.append("")
+    report_lines.append("-" * 64)
     if failed:
-        print(f"POLICY: {len(failed)} CHECK(S) FAILED")
+        report_lines.append(f"POLICY: {len(failed)} CHECK(S) FAILED")
         for name in failed:
-            print(f"  - {name}")
-        return 1
+            report_lines.append(f"  - {name}")
+    else:
+        report_lines.append("POLICY: ALL CHECKS PASSED")
 
-    print("POLICY: ALL CHECKS PASSED")
-    return 0
+    report_text = "\n".join(report_lines) + "\n"
+    print(report_text, end="")
+
+    # v1.3.1: when invoked inside a real pipeline run, write the
+    # canonical artifact directly. Removes dependence on the
+    # orchestrator's stdout-to-file capture and guarantees the POLICY
+    # marker line is present for auto_promote to find.
+    if args.run:
+        report_path = RUN_DIR_BASE / args.run / "policy-report.md"
+        if report_path.parent.is_dir():
+            report_path.write_text(report_text, encoding="utf-8")
+
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
