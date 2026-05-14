@@ -42,6 +42,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from dataclasses import dataclass
@@ -257,13 +258,33 @@ def evaluate_manifest(
     return evaluate_grant(grant_path, now=now)
 
 
+def _grant_sha256(grant_path: Path) -> str | None:
+    """Hash the grant file's bytes. Returns None if the file is unreadable."""
+    try:
+        return hashlib.sha256(grant_path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
 def _write_log(run_dir: Path, state: GrantState) -> None:
+    """Append a line to autonomous-mode.log recording the grant decision.
+
+    v1.2.2: when the grant validates as AUTONOMOUS-ACTIVE, the line
+    also records `grant_sha=<sha256>` so the post-run compliance check
+    can detect mid-run grant tampering. Older logs without grant_sha
+    are tolerated for back-compat (compliance check skips the SHA
+    comparison silently in that case).
+    """
     log = run_dir / "autonomous-mode.log"
     run_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     line = f"{ts}  status={state.status}"
     if state.grant_path is not None:
         line += f"  grant={state.grant_path}"
+    if state.status == "AUTONOMOUS-ACTIVE" and state.grant_path is not None:
+        sha = _grant_sha256(state.grant_path)
+        if sha is not None:
+            line += f"  grant_sha={sha}"
     if state.error:
         line += f"  error={state.error!r}"
     with log.open("a", encoding="utf-8") as f:
@@ -290,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate a grant file directly without going through a manifest.",
     )
     parser.add_argument(
-        "--version", action="version", version="check_autonomous_mode 1.2.1"
+        "--version", action="version", version="check_autonomous_mode 1.2.2"
     )
     args = parser.parse_args(argv)
 

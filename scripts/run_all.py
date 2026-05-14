@@ -11,6 +11,13 @@ report line is one of:
   POLICY: ALL CHECKS PASSED
   POLICY: <N> CHECK(S) FAILED
 
+When ``--run`` is given, the same content is also written directly to
+``.agent-runs/<run-id>/policy-report.md`` so the marker line is
+guaranteed to appear in the artifact regardless of how the orchestrator
+captures stdout (v1.2.2 — closes the auto-promote false-NOT_ELIGIBLE
+that surfaced when the orchestrator's stdout-to-file path lost the
+marker).
+
 To add project-specific policy checks, drop them in this directory next
 to the generic ones and add them to the CHECKS list below.
 """
@@ -22,7 +29,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from policy_utils import find_repo_root
+except ModuleNotFoundError:  # pragma: no cover - package import in tests
+    from scripts.policy_utils import find_repo_root
+
 THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = find_repo_root(__file__)
+RUN_DIR_BASE = REPO_ROOT / ".agent-runs"
 
 # Order matters only for human readability of the combined report.
 # Add project-specific checks here (e.g., a custom check_module_boundaries.py).
@@ -44,7 +58,17 @@ CHECKS: list[tuple[str, list[str]]] = [
 
 
 def _run(check_name: str, script_args: list[str], extra_args: list[str]) -> tuple[bool, str]:
-    cmd = [sys.executable, str(THIS_DIR / script_args[0]), *script_args[1:], *extra_args]
+    script_path = THIS_DIR / script_args[0]
+    if not script_path.exists():
+        # v1.2.2: distinguish "check script missing" from "check ran and
+        # failed". A deleted/renamed script otherwise surfaces as a
+        # generic non-zero exit indistinguishable from a real check
+        # failure, which is operator-hostile.
+        return False, (
+            f"check script not found: {script_path}. "
+            "Was the script renamed or deleted? Update CHECKS in run_all.py."
+        )
+    cmd = [sys.executable, str(script_path), *script_args[1:], *extra_args]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     output = (proc.stdout or "") + (proc.stderr or "")
     return proc.returncode == 0, output.rstrip()
@@ -74,27 +98,40 @@ def main() -> int:
         passed, output = _run(name, script_args, extra)
         results.append((name, passed, output))
 
-    print("=" * 64)
-    print("Policy checks")
-    print("=" * 64)
+    failed = [name for name, passed, _ in results if not passed]
+
+    report_lines: list[str] = []
+    report_lines.append("=" * 64)
+    report_lines.append("Policy checks")
+    report_lines.append("=" * 64)
     for name, passed, output in results:
         status = "PASS" if passed else "FAIL"
-        print(f"\n[{status}] {name}")
+        report_lines.append(f"\n[{status}] {name}")
         if output:
             for line in output.splitlines():
-                print(f"  {line}")
-
-    failed = [name for name, passed, _ in results if not passed]
-    print()
-    print("-" * 64)
+                report_lines.append(f"  {line}")
+    report_lines.append("")
+    report_lines.append("-" * 64)
     if failed:
-        print(f"POLICY: {len(failed)} CHECK(S) FAILED")
+        report_lines.append(f"POLICY: {len(failed)} CHECK(S) FAILED")
         for name in failed:
-            print(f"  - {name}")
-        return 1
+            report_lines.append(f"  - {name}")
+    else:
+        report_lines.append("POLICY: ALL CHECKS PASSED")
 
-    print("POLICY: ALL CHECKS PASSED")
-    return 0
+    report_text = "\n".join(report_lines) + "\n"
+    print(report_text, end="")
+
+    # When invoked inside a real pipeline run, write the canonical
+    # artifact directly. Removes dependence on the orchestrator's
+    # stdout-to-file capture and guarantees the POLICY marker line
+    # is present for auto_promote to find.
+    if args.run:
+        report_path = RUN_DIR_BASE / args.run / "policy-report.md"
+        if report_path.parent.is_dir():
+            report_path.write_text(report_text, encoding="utf-8")
+
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

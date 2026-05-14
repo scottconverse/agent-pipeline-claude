@@ -491,7 +491,7 @@ def _short_repr(value: object, max_len: int = 80) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.2.1")
+    parser.add_argument("--version", action="version", version="agent-pipeline-claude 1.2.2")
     parser.add_argument(
         "--run",
         help="Pipeline run id (directory under .agent-runs/). Without this, the check is a no-op.",

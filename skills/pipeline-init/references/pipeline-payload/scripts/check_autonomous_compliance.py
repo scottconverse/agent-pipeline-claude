@@ -9,7 +9,7 @@ recommendation. This script verifies that procedure was actually
 followed — catches the v1.2.0 failure mode where an LLM under
 autonomous authorization "chickens out" and stops anyway.
 
-Compliance checks:
+Compliance checks (applied when the run was AUTONOMOUS-ACTIVE):
 
   1. Every pipeline stage marked `autonomous_skip_chat: true` in the
      pipeline yaml has a corresponding entry in
@@ -26,15 +26,23 @@ Compliance checks:
      This catches the LLM emitting a wait-for-human message under
      autonomous mode.
 
-  4. The grant file's SHA-256 has not changed since the run began
-     (recorded at preflight in .agent-runs/<run-id>/autonomous-mode.log).
-     Catches mid-run grant tampering.
+  4. The grant file's SHA-256 has not changed since preflight pinned
+     it (v1.2.2 — `check_autonomous_mode.py` now records
+     `grant_sha=<hash>` in autonomous-mode.log when the grant is
+     accepted, and this check compares against the current bytes on
+     disk). Catches mid-run grant tampering. Logs without a recorded
+     SHA (older runs) are tolerated for back-compat — the SHA check is
+     simply skipped, with no finding.
 
 Each violation is emitted as a `COMPLIANCE_DRIFT` finding. Any drift
 finding fails the gate (exit 1).
 
-Skipped silently when the run was in HUMAN-MODE (the compliance check
-doesn't apply).
+v1.2.2 — outcome split: HUMAN-MODE runs and AUTONOMOUS-ACTIVE clean
+runs no longer share a single ambiguous PASS message. Three outcomes:
+
+  - SKIPPED (HUMAN-MODE)        — compliance check did not apply.
+  - PASS (AUTONOMOUS-MODE)      — compliance check ran, no drift.
+  - FAIL (AUTONOMOUS-MODE drift) — at least one COMPLIANCE_DRIFT.
 
 Usage:
 
@@ -42,7 +50,7 @@ Usage:
 
 Exit codes:
 
-    0  — compliance check passed, or HUMAN-MODE (skipped)
+    0  — compliance check passed (PASS or SKIPPED)
     1  — at least one COMPLIANCE_DRIFT finding
     2  — run directory not found
 """
@@ -172,35 +180,87 @@ def _check_chat_waits(chat_paths: list[Path]) -> list[Finding]:
 
 
 def _check_grant_sha(run_dir: Path, repo_root: Path) -> list[Finding]:
-    """Compare the grant file's current SHA against the SHA recorded at preflight."""
+    """Compare the grant file's current SHA against the SHA recorded at preflight.
+
+    v1.2.2 — implementation lands. `check_autonomous_mode.py` records
+    `grant_sha=<hex>` in autonomous-mode.log on the AUTONOMOUS-ACTIVE
+    line. This check finds the most-recent recorded SHA, hashes the
+    current grant file, and emits a COMPLIANCE_DRIFT finding if they
+    differ.
+
+    Tolerates two back-compat scenarios silently (no finding):
+      - autonomous-mode.log has no `grant_sha=` line (older run).
+      - The recorded `grant=` path no longer exists on disk
+        (relocated grant; treated as out-of-scope for this check —
+        the bigger problem of a missing grant is the subject of
+        separate gates).
+    """
     mode_log = run_dir / "autonomous-mode.log"
     if not mode_log.exists():
         return []
-    # Find the grant path from log
-    grant_path = None
+    grant_path: Path | None = None
+    recorded_sha: str | None = None
     for line in mode_log.read_text(encoding="utf-8", errors="replace").splitlines():
-        m = re.search(r"grant=(\S+)", line)
-        if m:
-            grant_path = Path(m.group(1))
-            break
-    if not grant_path or not grant_path.exists():
+        m_grant = re.search(r"grant=(\S+)", line)
+        if m_grant:
+            grant_path = Path(m_grant.group(1))
+        m_sha = re.search(r"grant_sha=([0-9a-fA-F]{64})", line)
+        if m_sha:
+            recorded_sha = m_sha.group(1).lower()
+    if recorded_sha is None or grant_path is None:
         return []
-    # The SHA we'd want to compare against would need to have been pinned at preflight.
-    # For v1.2.1 first cut, log a warning if the file's mtime moved post-preflight;
-    # full SHA-pin is a v1.2.2 extension.
+    if not grant_path.exists():
+        return []
+    try:
+        current_sha = hashlib.sha256(grant_path.read_bytes()).hexdigest()
+    except OSError:
+        return []
+    if current_sha != recorded_sha:
+        return [Finding(
+            code="COMPLIANCE_DRIFT",
+            detail=(
+                f"grant file SHA-256 changed mid-run: "
+                f"recorded {recorded_sha[:16]}... at preflight, "
+                f"now {current_sha[:16]}... on disk "
+                f"({grant_path}). The grant was modified after the run started — "
+                f"either it was re-pinned out-of-band or tampered with."
+            ),
+        )]
     return []
 
 
-def evaluate(run_id: str, repo_root: Path) -> list[Finding]:
+MODE_NOT_FOUND = "not-found"
+MODE_HUMAN = "human"
+MODE_AUTONOMOUS = "autonomous"
+
+
+def evaluate(run_id: str, repo_root: Path) -> tuple[str, list[Finding]]:
+    """Return ``(mode, findings)`` for the run.
+
+    v1.2.2 — signature changed. Callers must distinguish HUMAN-MODE
+    (skipped, no findings, exit 0) from AUTONOMOUS clean (passed
+    findings list is empty, exit 0). Previously both were a bare
+    ``[]`` return, which produced the ambiguous "OK ... or HUMAN-MODE"
+    main-script message that was Finding 2 in the v1.2.1 PROMOTED
+    report.
+
+    ``mode`` is one of:
+      - ``MODE_NOT_FOUND``  — run dir does not exist; findings carries
+        a single ``RUN_NOT_FOUND`` Finding for diagnostics.
+      - ``MODE_HUMAN``      — run was in HUMAN-MODE (or no
+        autonomous-mode.log was written); findings always empty.
+      - ``MODE_AUTONOMOUS`` — run was AUTONOMOUS-ACTIVE; findings
+        contains zero or more COMPLIANCE_DRIFT items.
+    """
     run_dir = (repo_root / ".agent-runs" / run_id).resolve()
     if not run_dir.exists():
-        return [Finding("RUN_NOT_FOUND", f"run directory not found: {run_dir}")]
+        return MODE_NOT_FOUND, [Finding("RUN_NOT_FOUND", f"run directory not found: {run_dir}")]
 
     # Determine mode from autonomous-mode.log
     mode_log = run_dir / "autonomous-mode.log"
     if not mode_log.exists():
         # No autonomous-mode log written → HUMAN-MODE; nothing to check.
-        return []
+        return MODE_HUMAN, []
     last_status = ""
     for line in mode_log.read_text(encoding="utf-8", errors="replace").splitlines():
         m = re.search(r"status=(\S+)", line)
@@ -208,7 +268,7 @@ def evaluate(run_id: str, repo_root: Path) -> list[Finding]:
             last_status = m.group(1)
     if last_status != "AUTONOMOUS-ACTIVE":
         # Run was not autonomous; compliance check doesn't apply.
-        return []
+        return MODE_HUMAN, []
 
     findings: list[Finding] = []
 
@@ -241,10 +301,10 @@ def evaluate(run_id: str, repo_root: Path) -> list[Finding]:
     ]
     findings.extend(_check_chat_waits(chat_paths))
 
-    # 4. Grant SHA stability (deferred to v1.2.2)
+    # 4. Grant SHA stability (v1.2.2 — implemented; see _check_grant_sha)
     findings.extend(_check_grant_sha(run_dir, repo_root))
 
-    return findings
+    return MODE_AUTONOMOUS, findings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -254,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--run", required=False)
     parser.add_argument(
-        "--version", action="version", version="check_autonomous_compliance 1.2.1"
+        "--version", action="version", version="check_autonomous_compliance 1.2.2"
     )
     args = parser.parse_args(argv)
 
@@ -262,22 +322,37 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     repo_root = _find_repo_root()
-    findings = evaluate(args.run, repo_root)
+    mode, findings = evaluate(args.run, repo_root)
 
-    if not findings:
-        print("OK: autonomous-mode compliance check passed (or run was HUMAN-MODE).")
+    if mode == MODE_NOT_FOUND:
+        for f in findings:
+            print(f"FAIL: [{f.code}] {f.detail}", file=sys.stderr)
+        return 2
+
+    if mode == MODE_HUMAN:
+        print(
+            "SKIPPED: HUMAN-MODE run — autonomous-compliance check does not apply "
+            "(no autonomous-mode.log AUTONOMOUS-ACTIVE entry)."
+        )
         return 0
 
-    print("AUTONOMOUS_COMPLIANCE_DRIFT — the following violations were detected:\n", file=sys.stderr)
-    for f in findings:
-        print(f"  [{f.code}] {f.detail}", file=sys.stderr)
-    print(
-        "\nThese findings indicate the run failed to follow the autonomous-mode "
-        "procedure that the grant authorized. The next manager-decision should "
-        "treat these as Blocker findings.",
-        file=sys.stderr,
-    )
-    return 1
+    if findings:
+        print(
+            "FAIL: AUTONOMOUS_COMPLIANCE_DRIFT — the following violations were detected:\n",
+            file=sys.stderr,
+        )
+        for f in findings:
+            print(f"  [{f.code}] {f.detail}", file=sys.stderr)
+        print(
+            "\nThese findings indicate the run failed to follow the autonomous-mode "
+            "procedure that the grant authorized. The next manager-decision should "
+            "treat these as Blocker findings.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("PASS: AUTONOMOUS-MODE compliance check clean — all four conditions satisfied.")
+    return 0
 
 
 if __name__ == "__main__":

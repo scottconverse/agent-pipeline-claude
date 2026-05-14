@@ -5,6 +5,34 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] — 2026-05-14
+
+**Gate-trustworthiness + brittleness polish.** Two findings surfaced by the v1.2.1 PROMOTED report (real Candidate B run on CivicSuite) and several adjacent improvements caught by porting test coverage from sibling implementation `agent-pipeline-codex`. No new features; the autonomous-mode flow shipped in v1.2.1 is unchanged in shape, but the gates around it now have honest outcomes and the brittleness paths that produced false NOT_ELIGIBLE decisions are closed.
+
+### Changed
+
+- **`scripts/auto_promote.py`** — three robustness fixes:
+  - Count-line regexes now accept case + whitespace variants (`re.IGNORECASE`, `\s*` around commas). Reports written by humans or non-templated tools no longer fail-closed on inconsequential formatting.
+  - `_check_tests` failure-counts logic now examines *every* `\d+ failed` occurrence and fails on any non-zero count, instead of accepting `0 failed` anywhere in the report alongside a real failure (real bug — surfaced by ported test).
+  - Vacuous-pass exception added to condition 6: when the manifest's `forbidden_paths` explicitly forbids the test directory (so the run was barred from running or modifying tests), `implementation-report.md` is allowed to be absent. Closes the docs-only-run NOT_ELIGIBLE that was Finding 1 in the v1.2.1 PROMOTED report.
+- **`scripts/run_all.py`** — when invoked with `--run`, writes `policy-report.md` directly to the run directory instead of relying on the orchestrator to capture stdout. The marker line `POLICY: ALL CHECKS PASSED` (or `POLICY: N CHECK(S) FAILED`) is now guaranteed to appear in the artifact, not contingent on a stdout-pipeline that proved unreliable in real runs. Also pre-validates that each check script in `CHECKS` exists before invoking it — a deleted/renamed script now reports a distinct error, not a generic non-zero exit.
+- **`scripts/check_autonomous_compliance.py`** — outcome split. `evaluate()` signature changed from `list[Finding]` to `(mode, list[Finding])` where mode is `MODE_NOT_FOUND` / `MODE_HUMAN` / `MODE_AUTONOMOUS`. The CLI now emits three distinct messages — `SKIPPED: HUMAN-MODE`, `PASS: AUTONOMOUS-MODE compliance check clean`, or `FAIL: AUTONOMOUS_COMPLIANCE_DRIFT` — replacing the ambiguous "OK ... or HUMAN-MODE" message that was Finding 2 in the v1.2.1 PROMOTED report.
+- **`scripts/check_autonomous_compliance.py`** — `_check_grant_sha` now actually compares the grant file's current SHA-256 to a SHA recorded at preflight. Mid-run grant tampering produces a `COMPLIANCE_DRIFT` finding. Older logs without recorded SHA are tolerated silently for back-compat.
+- **`scripts/check_autonomous_mode.py`** — `_write_log` now records `grant_sha=<hex>` on the AUTONOMOUS-ACTIVE log line so the post-run compliance check has a SHA to compare against. Pinning happens at preflight, so a grant edited mid-run no longer slips past compliance unnoticed.
+
+### Added
+
+- **`scripts/policy_utils.py`** — shared `find_repo_root(__file__)` helper. Centralizes the script-layout detection (plugin source vs. installed `scripts/policy/`) that several gate scripts duplicated inline. Ported from `agent-pipeline-codex`.
+- **`tests/test_auto_promote.py`** — new file, 8 tests. Pins regex flexibility, malformed-input failure paths, the failure-counts logic fix, vacuous-pass behavior for tests-out-of-scope runs, full-green main() happy path. `auto_promote.py` had zero direct test coverage prior to v1.2.2.
+- **`tests/test_run_all.py`** — new file, 4 tests. Pins the policy-report.md write contract, missing-script error handling, no-write-without-`--run` invariant.
+- **`tests/test_check_autonomous_compliance.py`** — three new tests for the v1.2.2 grant-SHA implementation (matches → no finding; mismatch → drift; missing in log → silent back-compat skip). Existing tests updated for the new `(mode, findings)` return shape.
+
+### Notes
+
+- 73 → 89 tests passing (+16). Same single skipped test (`cleanroom_e2e` marker — needs `ANTHROPIC_API_KEY`).
+- No new manifest schema fields. The vacuous-test exception is detected from the existing `forbidden_paths` field. The grant-SHA is recorded in the existing `autonomous-mode.log`.
+- Orchestrator behavior is unchanged. `run_all.py` writing `policy-report.md` directly is additive — orchestrators that previously captured stdout into the same path will simply overwrite an identical file.
+
 ## [1.2.1] — 2026-05-13
 
 **Autonomous-mode hardening: chat-driven grants, structural enforcement.**

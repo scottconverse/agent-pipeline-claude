@@ -53,26 +53,37 @@ def _setup_autonomous_run(
     return repo
 
 
-def test_human_mode_skipped_silently(tmp_path: Path) -> None:
-    """If autonomous-mode.log shows HUMAN-MODE, compliance check is a no-op."""
+def test_human_mode_returns_human_mode_no_findings(tmp_path: Path) -> None:
+    """v1.2.2: HUMAN-MODE log returns mode=human, findings empty."""
     repo = _setup_autonomous_run(
         tmp_path,
         autonomous_mode_log="2026-05-14T03:00:00Z  status=HUMAN-MODE\n",
     )
-    findings = cac.evaluate("test-run", repo)
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_HUMAN
     assert findings == []
 
 
-def test_no_autonomous_mode_log_skipped(tmp_path: Path) -> None:
-    """Run with no autonomous-mode.log (legacy/human run) is skipped."""
+def test_no_autonomous_mode_log_returns_human_mode(tmp_path: Path) -> None:
+    """v1.2.2: legacy run with no autonomous-mode.log returns mode=human."""
     repo = tmp_path
     run_dir = repo / ".agent-runs" / "test-run"
     run_dir.mkdir(parents=True)
-    findings = cac.evaluate("test-run", repo)
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_HUMAN
     assert findings == []
 
 
-def test_all_stages_logged_passes(tmp_path: Path) -> None:
+def test_run_dir_missing_returns_not_found(tmp_path: Path) -> None:
+    """v1.2.2: missing run dir returns mode=not-found with diagnostic finding."""
+    mode, findings = cac.evaluate("nonexistent", tmp_path)
+    assert mode == cac.MODE_NOT_FOUND
+    assert len(findings) == 1
+    assert findings[0].code == "RUN_NOT_FOUND"
+
+
+def test_all_stages_logged_returns_autonomous_clean(tmp_path: Path) -> None:
+    """v1.2.2: clean autonomous run returns mode=autonomous, findings empty."""
     decisions = (
         "# Autonomous decisions for test-run\n\n"
         "## 2026-05-14T03:01:00Z — manifest\n"
@@ -83,7 +94,8 @@ def test_all_stages_logged_passes(tmp_path: Path) -> None:
         "Verdict: AUTONOMOUS-PROMOTE\n"
     )
     repo = _setup_autonomous_run(tmp_path, decisions_md=decisions)
-    findings = cac.evaluate("test-run", repo)
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
     assert findings == [], findings
 
 
@@ -95,7 +107,8 @@ def test_missing_stage_decision_is_flagged(tmp_path: Path) -> None:
         # plan + manager missing
     )
     repo = _setup_autonomous_run(tmp_path, decisions_md=decisions)
-    findings = cac.evaluate("test-run", repo)
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
     flagged = " ".join(f.detail for f in findings)
     assert "plan" in flagged
     assert "manager" in flagged
@@ -109,7 +122,8 @@ def test_forbidden_action_in_run_log_flagged(tmp_path: Path) -> None:
     )
     run_log = "gh pr merge 42 -R foo/bar --admin --squash --delete-branch\n"
     repo = _setup_autonomous_run(tmp_path, decisions_md=decisions, run_log=run_log)
-    findings = cac.evaluate("test-run", repo)
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
     flagged = " ".join(f.detail for f in findings)
     assert "admin-merge" in flagged
 
@@ -122,6 +136,72 @@ def test_chat_wait_pattern_flagged(tmp_path: Path) -> None:
     )
     chat = "Manifest ready. Reply APPROVE to proceed.\n"
     repo = _setup_autonomous_run(tmp_path, decisions_md=decisions, chat_log=chat)
-    findings = cac.evaluate("test-run", repo)
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
     flagged = " ".join(f.detail for f in findings)
     assert "Reply APPROVE" in flagged or "chickening-out" in flagged
+
+
+# v1.2.2 — _check_grant_sha tests
+
+
+def _decisions_full() -> str:
+    return (
+        "## 2026-05-14T03:01:00Z — manifest\nVerdict: AUTONOMOUS-APPROVE\n"
+        "## 2026-05-14T03:05:00Z — plan\nVerdict: AUTONOMOUS-APPROVE\n"
+        "## 2026-05-14T03:30:00Z — manager\nVerdict: AUTONOMOUS-PROMOTE\n"
+    )
+
+
+def test_grant_sha_matches_no_finding(tmp_path: Path) -> None:
+    """When the grant file's current SHA matches the recorded SHA, no drift."""
+    import hashlib
+
+    grant = tmp_path / "grant.md"
+    grant_content = "Granted-by: Scott\nGranted-at: 2026-05-14T00:00:00Z\n"
+    grant.write_bytes(grant_content.encode("utf-8"))
+    sha = hashlib.sha256(grant.read_bytes()).hexdigest()
+    log = (
+        f"2026-05-14T03:00:00Z  status=AUTONOMOUS-ACTIVE  grant={grant}  grant_sha={sha}\n"
+    )
+    repo = _setup_autonomous_run(
+        tmp_path, decisions_md=_decisions_full(), autonomous_mode_log=log
+    )
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
+    sha_findings = [f for f in findings if "SHA-256" in f.detail]
+    assert sha_findings == []
+
+
+def test_grant_sha_mismatch_flagged(tmp_path: Path) -> None:
+    """When the grant file is modified mid-run, the SHA check flags drift."""
+    grant = tmp_path / "grant.md"
+    grant.write_text("original content\n", encoding="utf-8")
+    pinned_but_now_wrong_sha = "0" * 64
+    log = (
+        f"2026-05-14T03:00:00Z  status=AUTONOMOUS-ACTIVE  "
+        f"grant={grant}  grant_sha={pinned_but_now_wrong_sha}\n"
+    )
+    repo = _setup_autonomous_run(
+        tmp_path, decisions_md=_decisions_full(), autonomous_mode_log=log
+    )
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
+    sha_findings = [f for f in findings if "SHA-256" in f.detail]
+    assert len(sha_findings) == 1
+    assert sha_findings[0].code == "COMPLIANCE_DRIFT"
+
+
+def test_grant_sha_missing_in_log_back_compat(tmp_path: Path) -> None:
+    """Logs without grant_sha (older runs) skip the SHA check silently."""
+    grant = tmp_path / "grant.md"
+    grant.write_text("any content\n", encoding="utf-8")
+    log = f"2026-05-14T03:00:00Z  status=AUTONOMOUS-ACTIVE  grant={grant}\n"
+    repo = _setup_autonomous_run(
+        tmp_path, decisions_md=_decisions_full(), autonomous_mode_log=log
+    )
+    mode, findings = cac.evaluate("test-run", repo)
+    assert mode == cac.MODE_AUTONOMOUS
+    # Other checks should still fire if anything's wrong; SHA check should not.
+    sha_findings = [f for f in findings if "SHA-256" in f.detail]
+    assert sha_findings == []
