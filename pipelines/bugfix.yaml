@@ -18,7 +18,6 @@ stages:
     role: human
     artifact: manifest.yaml
     gate: human_approval
-    autonomous_skip_chat: true
 
   - name: preflight
     role: pipeline
@@ -64,5 +63,8 @@ stages:
     role: manager
     artifact: manager-decision.md
     gate: human_approval
+    # v1.3.0: when auto_promote_aware: true AND auto_promote.py wrote
+    # manager-decision.md with **Decision: PROMOTE** as its first line,
+    # the run skill skips the human gate. Otherwise the gate fires
+    # via AskUserQuestion (modal APPROVE / BLOCK / REPLAN).
     auto_promote_aware: true
-    autonomous_skip_chat: true

@@ -38,22 +38,8 @@ The plan is complete only when:
 - A test-writer reading only this plan can produce failing tests without consulting any other source.
 - Append `STAGE_DONE: plan` to `.agent-runs/<run-id>/run.log` as your final action. v1.2.0 hardening rule; `scripts/policy/check_stage_done.py` enforces.
 
-## Autonomous-mode awareness (v1.2.1+)
+## Gate flow (v1.3.0)
 
-If the manifest specifies `gate_policy: autonomous` AND the preflight stage's `autonomous-mode.log` shows `AUTONOMOUS-ACTIVE`, the plan gate operates differently:
+The plan stage produces plan.md. The orchestrator's plan gate is a fast modal AskUserQuestion prompt (APPROVE / REPLAN / Block). You do not need to do anything special to advance — write plan.md normally and the orchestrator handles the gate.
 
-1. Draft the plan exactly as normal — same constraints, same paths-in-allowed_paths verification, same risk/mitigation rigor. The grant authorizes the mode, not the rigor.
-2. After writing plan.md, append an entry to `.agent-runs/<run-id>/autonomous-decisions.md`:
-
-   ```markdown
-   ## <ISO timestamp> — plan
-   Verdict: AUTONOMOUS-APPROVE
-   Rationale: <2-3 sentences naming why the plan satisfies the manifest>
-   Artifact: .agent-runs/<run-id>/plan.md
-   Proceeding to: test-write
-   ```
-
-3. Produce a chat status (NOT a wait-for-reply message): `"AUTONOMOUS-APPROVE: plan drafted with N files touched. Proceeding to test-write."` Do NOT ask for APPROVE.
-4. Return control. Do not pause.
-
-**If the plan reveals the manifest's definition_of_done is infeasible** — that's a REPLAN trigger. Halt and surface even under autonomous mode. The grant doesn't authorize you to plan around a broken manifest.
+**If the plan reveals the manifest's definition_of_done is infeasible**, write that finding into plan.md's §Open Questions or §Risks section. The user can decide to REPLAN at the gate.

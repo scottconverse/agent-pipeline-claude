@@ -18,10 +18,6 @@ stages:
     role: human
     artifact: manifest.yaml
     gate: human_approval
-    # v1.2.1: when gate_policy=autonomous AND check_autonomous_mode.py
-    # returns AUTONOMOUS-ACTIVE, this stage skips chat-APPROVE and
-    # logs an AUTONOMOUS-DECISION entry instead.
-    autonomous_skip_chat: true
 
   # v1.2.0 hardening: priority-drift + manifest-integrity gates run
   # AFTER the human APPROVE on the manifest and BEFORE researcher
@@ -40,7 +36,6 @@ stages:
     role: planner
     artifact: plan.md
     gate: human_approval
-    autonomous_skip_chat: true
 
   - name: test-write
     role: test-writer
@@ -77,8 +72,8 @@ stages:
     role: manager
     artifact: manager-decision.md
     gate: human_approval
+    # v1.3.0: when auto_promote_aware: true AND auto_promote.py wrote
+    # manager-decision.md with **Decision: PROMOTE** as its first line,
+    # the run skill skips the human gate. Otherwise the gate fires
+    # via AskUserQuestion (modal APPROVE / BLOCK / REPLAN).
     auto_promote_aware: true
-    # v1.2.1: autonomous mode can auto-approve PROMOTE verdicts.
-    # BLOCK and REPLAN always halt for human regardless of grant —
-    # the manager.md role honors this distinction.
-    autonomous_skip_chat: true

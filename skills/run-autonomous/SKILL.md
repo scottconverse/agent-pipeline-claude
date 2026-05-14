@@ -1,52 +1,29 @@
 ---
 name: run-autonomous
-description: Run the agent-pipeline-claude pipeline under autonomous mode (the three human-approval gates auto-approve based on the LLM's own recommendation, logged to .agent-runs/<id>/autonomous-decisions.md). Requires a valid autonomous-mode grant; see /agent-pipeline-claude:grant-autonomous. Invoked as /agent-pipeline-claude:run-autonomous --grant <grant-path> "<task description>".
+description: (Deprecated in v1.3.0 — use /agent-pipeline-claude:run instead.) The v1.2.x grant-based autonomous mode is gone. The standard /run now uses fast modal AskUserQuestion gates (one click each) and auto-promotes evidence-driven when all checks pass.
 ---
 
-# Run-autonomous
+# Deprecated in v1.3.0
 
-Entry-point for autonomous pipeline runs. Validates the grant, drafts the manifest with `gate_policy: autonomous`, then invokes the normal `/agent-pipeline-claude:run` flow which honors the autonomous-mode hard rules in `skills/run/SKILL.md`.
+This skill is a no-op. The grant + autonomous-mode mechanism it implemented (v1.2.1) created more friction than it removed: gates required signed grant files, the LLM still found ways to halt on edge cases, and the ceremony around chat-APPROVE was the actual failure mode — not the lack of authorization.
 
-## Argument shape
+The v1.3.0 redesign:
 
-`$ARGUMENTS` is `--grant <path> "<task description>"`. The task description is the same shape `/agent-pipeline-claude:run` expects.
+- **All three human gates** (manifest, plan, manager) fire as `AskUserQuestion` modals — ONE click each.
+- **Auto-promote is the path to hands-off.** When `auto_promote.py` reports ELIGIBLE (verifier clean, critic clean, drift clean, policy passed, tests passed), the manager gate is skipped entirely. No grant required.
+- **There is no separate autonomous mode.** Just `/agent-pipeline-claude:run`.
 
-## Procedure
+## What to do instead
 
-1. **Parse `--grant <path>`.** Reject if missing — autonomous mode is grant-required.
+Run `/agent-pipeline-claude:run "<task description>"`. The flow:
 
-2. **Validate grant via `scripts/policy/check_autonomous_mode.py --grant <path>`.** If exit non-zero, halt and report. Common failures:
-   - `NO_GRANT_FILE` — path doesn't exist
-   - `GRANT_EXPIRED` — Expires-at is in the past
-   - `GRANT_REVOKED` — Revoked: true
-   - `GRANT_MALFORMED` — required headers missing
+1. Manifest drafter produces `manifest.yaml`. Modal gate: APPROVE / Revise / View.
+2. Pipeline stages run in order (research → plan → execute → policy → verify → drift → critic).
+3. Plan stage produces `plan.md`. Modal gate: APPROVE / REPLAN / View / Block.
+4. After critique, `auto_promote.py` runs.
+5. **If ELIGIBLE**: `manager-decision.md` is auto-written with verdict PROMOTE; manager subagent validates-and-appends a confirmation; no human gate fires.
+6. **If NOT_ELIGIBLE**: manager subagent decides; modal gate: APPROVE manager verdict / BLOCK / REPLAN / View.
 
-3. **Set manifest fields.** The manifest-drafter (invoked next) receives instructions to set `gate_policy: autonomous` and `autonomous_grant: <path>` in the manifest it produces.
+If you have existing autonomous-grant files on disk under `.agent-workflows/autonomous-grants/`, they are ignored. Safe to archive.
 
-4. **Invoke `/agent-pipeline-claude:run` with the task description.** The run skill's v1.2.1 hard rules kick in once the manifest carries `gate_policy: autonomous`. Three gates auto-approve; PRs are opened but NOT admin-merged.
-
-5. **Each autonomous-decision logs to `.agent-runs/<run-id>/autonomous-decisions.md`.** Per the role files' autonomous-mode-awareness sections.
-
-6. **`check_autonomous_compliance.py` runs post-execute** in the policy stage. Any wait-for-human chat patterns or forbidden actions emit `COMPLIANCE_DRIFT` findings.
-
-7. **Run completes when:**
-   - Manager-decision is PROMOTE → PR opened, awaiting human admin-merge. Run logs completion.
-   - Manager-decision is BLOCK or REPLAN → halts for human regardless of mode.
-   - Mid-run grant revocation → halts at next gate.
-   - Compliance drift detected → manager-decision treats as Blocker, halts.
-
-## Hard rules
-
-- **No grant, no run.** Cannot bypass the grant check.
-- **The run skill's v1.2.1 hard rules apply.** No admin-merge, no tag push, no release publish, no force push, no human_only_under_autonomous actions.
-- **Grant is re-validated before EVERY gate.** Mid-run revocation halts the next gate. Mid-run expiration likewise.
-- **All decisions log.** Every autonomous-approve writes to `.agent-runs/<run-id>/autonomous-decisions.md` with timestamp + rationale + grant citation.
-- **If you see a `Reply APPROVE` chat message produced by any stage under autonomous mode, that's a `COMPLIANCE_DRIFT` event.** The post-run check will catch it; treat it as a Blocker finding.
-
-## Status / abort
-
-To check on a running autonomous run: `/agent-pipeline-claude:run status` (the regular run skill's status path; works for autonomous runs too).
-
-To abort mid-run: `/agent-pipeline-claude:grant-autonomous` with "revoke autonomous" or "kill it." The grant gets revoked; the next gate halts.
-
-To resume after a halt: `/agent-pipeline-claude:run resume <run-id>`. If the grant is still active, autonomous mode resumes. If expired/revoked, the run reverts to human mode for the remaining stages.
+If you typed `/agent-pipeline-claude:run-autonomous` expecting the old behavior, please use `/agent-pipeline-claude:run` instead.

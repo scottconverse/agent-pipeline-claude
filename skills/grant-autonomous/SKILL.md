@@ -1,27 +1,22 @@
 ---
 name: grant-autonomous
-description: Create, revoke, extend, or delete an autonomous-mode grant. The grant authorizes the agent-pipeline-claude pipeline to auto-approve specific human gates (manifest / plan / manager-PROMOTE) under explicit time-bounded, action-bounded conditions. Chat-driven — the user describes what they want; the skill writes the grant file at `.agent-workflows/autonomous-grants/<name>.md` and updates the ledger. Invoked as /agent-pipeline-claude:grant-autonomous.
+description: (Deprecated in v1.3.0 — the grant system is gone.) v1.3.0 removed the grant-based autonomous mode entirely; gates fire as fast modal questions and auto-promote replaces the authorization-file mechanism.
 ---
 
-# Grant-autonomous
+# Deprecated in v1.3.0
 
-Follow the canonical workflow in `references/grant-autonomous.md`. That document is the single source of truth for the grant document shape, the chat-command parsing rules, the ledger format, the revoke/extend/delete procedures, and the safety hard rules.
+This skill is a no-op. v1.2.1 introduced grant files at `.agent-workflows/autonomous-grants/<name>.md` to authorize autonomous-mode pipeline runs. The mechanism was over-engineered: it solved "LLM ignores conversational authorization" by adding a signed file, but the actual failure mode was the chat-APPROVE ceremony, not the lack of structural authorization.
 
-Tool mapping for Claude Code:
+The v1.3.0 fix is simpler: replace chat-APPROVE with `AskUserQuestion` (a modal one-click prompt) for the three human gates. No grant, no signature, no ceremony. When `auto_promote.py` reports all checks clean, the manager gate is skipped automatically — this is evidence-driven automation rather than authorization-driven.
 
-- Use **Read** to inspect existing grant files and the ledger.
-- Use **Write** for creating new grant files.
-- Use **Edit** for revoke / extend / modify operations on existing grant files.
-- Use **Bash** for `git status` if confirming working-tree state before grant creation.
+## What to do instead
 
-`$ARGUMENTS` is the user's natural-language request after the slash command. The procedure parses the intent: create / revoke / extend / delete / status. The user does NOT write the YAML themselves — they describe what they want and Claude writes the file.
+You do not need a grant for anything. Just run `/agent-pipeline-claude:run "<task description>"`. Modal gates handle the human checkpoints; auto-promote handles the hands-off case.
 
-Hard rules:
+If you have grant files on disk, you can:
+- Leave them — they are ignored.
+- Archive them — `mv .agent-workflows/autonomous-grants/ .agent-workflows/autonomous-grants.archived-pre-v1.3.0/`.
 
-- **Never create a grant without explicit user confirmation in chat.** Parse the intent, show a one-line summary (expires, gates, forbidden, rationale), wait for "yes" / "confirm" / "go" before writing.
-- **Always include Forbidden-actions.** Even if the user doesn't mention them, the default forbidden set (admin-merge, tag push, release publish, force push, any high_risk action class) is always present.
-- **Granted-by is always "Scott Converse" (or the configured project owner).** This is Scott's grant; the file records the human authorizer's name.
-- **Expires-at is required and bounded.** Maximum 24 hours from Granted-at unless the user explicitly says "for the next week" or similar — and even then, ask for confirmation.
-- **Always update the ledger.** Every grant action (create / revoke / extend / delete) appends a row to `.agent-workflows/autonomous-grants/ledger.md`.
-- **Never delete a grant — rename to `.archived` instead.** Preserves audit trail.
-- **Revoke is irreversible within the grant's original time window.** Once Revoked: true, the grant can be re-enabled only by creating a new grant.
+## Will not be reactivated
+
+The structural problem the grant system was supposed to solve (LLM interpretive judgment at gates) is solved better by modal `AskUserQuestion`. There is no roadmap to bring grants back.

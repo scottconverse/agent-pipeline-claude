@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -167,8 +168,11 @@ def test_cleanroom_install_structure_check(tmp_path: Path) -> None:
     # Note: check_plugin_structure.py lives at tests/ in the source repo,
     # not in the shipped plugin payload. Run the source-repo copy against
     # the cleanroom install dir as its cwd to verify path resolution.
+    # Use sys.executable (the current Python interpreter path) so this
+    # works on systems where `python` isn't on PATH (Ubuntu 24.04 ships
+    # only `python3` by default).
     result = subprocess.run(
-        ["python", str(REPO_ROOT / "tests" / "check_plugin_structure.py")],
+        [sys.executable, str(REPO_ROOT / "tests" / "check_plugin_structure.py")],
         capture_output=True,
         text=True,
         encoding="utf-8",

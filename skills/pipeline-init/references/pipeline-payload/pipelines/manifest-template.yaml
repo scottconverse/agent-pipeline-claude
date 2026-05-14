@@ -146,23 +146,16 @@ pipeline_run:
   target_repos: []
 
   # ---------------------------------------------------------------------
-  # v1.2.1 autonomous-mode fields (OPTIONAL; default behavior unchanged)
+  # v1.3.0: autonomous-mode fields removed
   # ---------------------------------------------------------------------
   #
-  # `gate_policy: human` (default): every gate (manifest / plan / manager)
-  # produces a chat-APPROVE message and waits for human reply.
+  # v1.2.1 shipped a grant-based autonomous mode. v1.3.0 replaces it with
+  # evidence-driven auto-promote: when auto_promote.py reports ELIGIBLE
+  # (verifier clean, critic clean, drift clean, policy passed, tests
+  # passed), the manager stage skips the human gate. Otherwise the three
+  # human gates (manifest, plan, manager) fire as fast modal
+  # AskUserQuestion prompts (one click each).
   #
-  # `gate_policy: autonomous`: gates marked `autonomous_skip_chat: true`
-  # in the pipeline yaml proceed without chat-APPROVE. The LLM logs its
-  # decision to `.agent-runs/<run-id>/autonomous-decisions.md` and moves
-  # on. Requires a valid grant file at the path named by autonomous_grant.
-  #
-  # The grant is a signed markdown document with Granted-by / Granted-at /
-  # Expires-at / Authorized-gates / Forbidden-actions / Revoked /
-  # Rationale headers. The check_autonomous_mode.py script validates it
-  # at preflight. To create/revoke/extend a grant, ask Claude in chat.
-  gate_policy: human
-
-  # Path to the grant file under .agent-workflows/autonomous-grants/.
-  # Required when gate_policy is autonomous; ignored otherwise.
-  autonomous_grant: ""
+  # If you have an existing manifest with `gate_policy: autonomous` or
+  # `autonomous_grant:` set, they are ignored — the new flow runs as if
+  # they were not there. Safe to remove from your manifest.

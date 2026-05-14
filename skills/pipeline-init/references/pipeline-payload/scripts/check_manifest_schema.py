@@ -399,7 +399,7 @@ def _check(fields: dict[str, object]) -> list[dict[str, str]]:
                 "suggest": (
                     "set to 'human' (default; three gates require chat-APPROVE) or "
                     "'autonomous' (requires a valid autonomous_grant; gates marked "
-                    "autonomous_skip_chat proceed without human reply)."
+                    "v1.3.0: modal gates fire via AskUserQuestion)."
                 ),
             }
         )

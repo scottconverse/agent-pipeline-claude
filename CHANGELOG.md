@@ -5,6 +5,49 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-05-14
+
+**Codex-aligned redesign: modal gates replace chat-APPROVE; grant + autonomous-mode removed entirely.**
+
+v1.2.1 added a grant-based autonomous mode to solve "the LLM ignores conversational authorization and chickens out at gates." The fix was over-engineered — it added grant files, ledgers, signed authorization documents, and several new policy scripts. The actual failure mode was the chat-APPROVE ceremony itself: free-form text gates left interpretive surface area for the LLM to halt on.
+
+v1.3.0 replaces the chat-APPROVE ceremony with `AskUserQuestion` modal prompts (one click each) for the three human gates (manifest, plan, manager). Auto-promote becomes the evidence-driven path to hands-off: when verifier/critic/drift/policy/tests all pass, the manager gate is skipped entirely. No grant required, no autonomous mode, no signed file. Mirrors the design of `agent-pipeline-codex` which has shipped clean hands-off runs without grants.
+
+### Removed (breaking, but inert for existing manifests)
+
+- **Grant-based autonomous mode.** `gate_policy: autonomous` and `autonomous_grant` manifest fields are ignored. Existing grant files at `.agent-workflows/autonomous-grants/` are inert — safe to archive.
+- **`autonomous_skip_chat: true` flags** on pipeline yaml stages — removed from `feature.yaml`, `bugfix.yaml`, and `module-release.yaml`.
+- **Autonomous-mode awareness sections** in `manifest-drafter.md`, `planner.md`, `manager.md` role files — replaced with v1.3.0 gate-flow notes.
+
+### Deprecated (kept as no-op shims for backward compat)
+
+- **`/agent-pipeline-claude:run-autonomous`** — SKILL.md is a deprecation notice that redirects to `/agent-pipeline-claude:run`.
+- **`/agent-pipeline-claude:grant-autonomous`** — same; the grant system is gone.
+- **`scripts/check_autonomous_mode.py`** — always returns PASS with status `HUMAN-MODE` (no-op stub).
+- **`scripts/check_autonomous_compliance.py`** — always returns PASS (no-op stub).
+
+### Changed
+
+- **`skills/run/SKILL.md` and `references/run.md`** — rewritten to use `AskUserQuestion` for all three human gates. No chat-APPROVE. No grant logic.
+- **`pipelines/manifest-template.yaml`** — removed `gate_policy:` and `autonomous_grant:` fields and their explanatory comment block.
+- **`pipelines/roles/manifest-drafter.md`, `planner.md`, `manager.md`** — removed autonomous-mode awareness sections; added v1.3.0 gate-flow / auto-promote notes.
+- **`.claude-plugin/plugin.json`** — description updated to reflect modal gates and no-grant flow.
+
+### Migration notes
+
+If you have:
+- **Pipeline runs in flight under v1.2.x autonomous mode** — finish them on v1.2.1 (the grant logic is preserved if you don't upgrade mid-run). On the next run, drop the grant flow.
+- **Grant files on disk** — leave them or archive. No effect on v1.3.0 behavior.
+- **Custom pipelines with `autonomous_skip_chat: true`** — remove the flag. The v1.3.0 run skill ignores it but cleanest is to remove.
+
+### Why this is the right answer
+
+- **AskUserQuestion is modal and structured.** One click. The LLM cannot invent extra prompts or chicken out; the user cannot inadvertently type "approve maybe?" and confuse the LLM. The interpretive surface is zero.
+- **Auto-promote is honest automation.** Evidence-driven (the script reads the artifacts and decides), not authorization-driven (no signed file granting permission). When the work passes its own quality bar, it advances. When it doesn't, the human gate fires.
+- **Mirrors agent-pipeline-codex.** Codex's design has shipped clean autonomous-feeling runs for weeks. v1.3.0 ports the pattern.
+
+---
+
 ## [1.2.1] — 2026-05-13
 
 **Autonomous-mode hardening: chat-driven grants, structural enforcement.**

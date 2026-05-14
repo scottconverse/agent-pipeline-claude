@@ -95,32 +95,15 @@ The stage is complete only when:
 - A human approver reading only manager-decision.md plus the verifier-report.md can confirm or reject without reading anything else.
 - Append `STAGE_DONE: manager` to `.agent-runs/<run-id>/run.log` as your final action. `check_stage_done.py` enforces (v1.2.0).
 
-## Autonomous-mode awareness (v1.2.1+)
+## Auto-promote awareness (v1.3.0)
 
-If the manifest specifies `gate_policy: autonomous` AND `autonomous-mode.log` shows `AUTONOMOUS-ACTIVE`, the manager gate's behavior depends on the verdict:
+If the auto-promote stage already wrote `manager-decision.md` with `**Decision: PROMOTE**` as the first line, you were invoked in **validate-and-append** mode, not in **decide** mode. In that case:
 
-- **Verdict = PROMOTE** AND the grant's Authorized-gates includes `manager-gate APPROVE (PROMOTE only)` or `manager-gate APPROVE`: auto-approve.
-- **Verdict = REPLAN or BLOCK** OR the grant does not authorize the manager gate: halt for human regardless of mode.
+1. Do NOT overwrite the existing decision.
+2. Validate the six auto-promote conditions (verifier clean, critic clean, drift clean, policy passed, judge clean, tests passed) by reading the cited artifacts.
+3. Append a `## Manager confirmation` section to the existing manager-decision.md listing what you validated.
+4. Do NOT change the first line. The auto-promote verdict stands.
 
-When auto-approving:
+Otherwise (no auto-promote preset), write manager-decision.md normally with your verdict (PROMOTE / BLOCK / REPLAN), and the orchestrator will fire the AskUserQuestion gate to confirm.
 
-1. Write manager-decision.md exactly as normal — same verdict, same citations, same Resolution-per-finding table.
-2. Append to `.agent-runs/<run-id>/autonomous-decisions.md`:
-
-   ```markdown
-   ## <ISO timestamp> — manager
-   Verdict: AUTONOMOUS-PROMOTE
-   Rationale: <citations to the verifier/critic/drift findings that drove PROMOTE>
-   Grant authorization: <path to grant file>:<heading line>
-   Artifact: .agent-runs/<run-id>/manager-decision.md
-   Proceeding to: PR creation (PR opened, NOT admin-merged)
-   ```
-
-3. The PR is opened (executor stage handled that already, or the manager opens it now per project convention).
-4. **Never** admin-merge under autonomous mode. The PR sits awaiting human review. The grant authorizes APPROVE on the manager VERDICT, not the merge ACTION.
-5. Produce chat status: `"AUTONOMOUS-PROMOTE: manager decision recorded. PR at <url>. Awaiting human admin-merge."`
-6. Return control.
-
-**If the verdict is BLOCK**: write manager-decision.md, do NOT log autonomous-promote, halt for human review per normal BLOCK semantics.
-
-**If the verdict is REPLAN**: same — REPLAN routes back to the planner; autonomous mode doesn't authorize replanning, only verdict-approval.
+**Never** admin-merge a PR, push a tag, or publish a release. These remain explicit human actions outside the pipeline. The pipeline's job ends at "PR opened, manager-decision logged, awaiting human admin-merge."
