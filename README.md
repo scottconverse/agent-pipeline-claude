@@ -1,318 +1,177 @@
 # agent-pipeline-claude
 
-**Ship multi-step Claude Code work that doesn't drift.**
+**v2.0.0 — autonomous sprint driver for Claude Code.**
 
-The plugin reads your project's spec, drafts a per-run scope contract from it, and asks you to APPROVE in chat. Then it runs research → plan → execute → verify → critique end-to-end with three human gates, an opt-in real-time judge, and machine-checkable auto-promote.
+Type one goal. Click GO once. Walk away. The agent decomposes the goal into ordered tasks, executes each end-to-end (plan → implement → verify → auto-fix on failure with bounded Reflexion-style retries), auto-commits per task with semantic messages, opens a PR at sprint end.
 
-One namespaced skill. No YAML for you to hand-author.
+**Zero mid-run gates.** Bounded retries (max 3 per task) instead of human escalation. Always exits with something — partial PR if a hard blocker was hit, full PR if it shipped.
 
-**Current release: v1.1.0** · [CHANGELOG](CHANGELOG.md) · [User Manual](USER-MANUAL.md) · [Architecture](ARCHITECTURE.md) · [Landing page](https://scottconverse.github.io/agent-pipeline-claude/) · [Discussions](https://github.com/scottconverse/agent-pipeline-claude/discussions)
+```
+/agent-pipeline-claude:run "ship slice 1 commits 1-5 of v0.4"
+                ↓
+        scope drafted → ONE AskUserQuestion → GO
+                ↓
+   for each task in scope.tasks:
+      worker → plan + implement + self-verify
+        ↓ passes      ↓ fails           ↓ blocked
+       commit ↻      retry (max 3)     escalate
+                       w/ failure obs
+                       (Reflexion)
+                ↓
+   integration suite → push branch → PR opened
+```
 
 ---
 
-## What a typical run looks like
+## Why v2.0
 
-You're in your project. The plugin is installed. You type:
+v1.0–v1.3 were variations on the same idea: an 11-stage feature pipeline with three mandatory human gates and 14 role files. Even after v1.3.0's modal-gate fix, the structure forced ceremony on every shape of work. A 6-step verification cleanroom and a single bug fix both ran the same 11 stages. Operators spent more time clicking gates and reading artifact ceremony than seeing the agent ship product.
 
-```
-/agent-pipeline-claude:run "close QA-005 conflict-409 race"
-```
+v2.0 collapses the entire pipeline shape to a single autonomous loop. **One review gate at the start. After GO, the loop runs until success, hard blocker, or bounded-retry exhaustion. No mid-run modal dialogs. No "view plan" detours.**
 
-> **Why the namespace prefix?** Per the [official Claude Code plugin docs](https://code.claude.com/docs/en/plugins), plugin skills are always invoked as `/<plugin-name>:<skill-name>` to prevent collisions across plugins. The bare `/run` form is reserved for standalone `.claude/commands/` files, not marketplace plugins.
+Design informed by:
+- **SWE-agent** (`max_requeries=3` + autosubmit on any error path)
+- **Aider** (`max_reflections=3` + auto-commit per successful edit)
+- **OpenHands** (stuck-detector at 3-4 repeats + graceful ERROR state)
+- **Reflexion** (Yao et al., 2023 — failure-as-observation tutoring)
+- **GitHub release-please** (gate once at detect, fan out many publish jobs)
+- **LangGraph** (checkpointed resumable state per thread)
 
-Claude reads your project's spec / release plan / scope-lock / design notes, drafts a manifest, and pastes it in chat:
-
-```
-Drafted from docs/releases/v0.4-scope-lock.md §1 + docs/research/v04-slice1-design.md.
-8/11 fields auto-derived, 3 require your confirmation.
-
-```yaml
-pipeline_run:
-  id: "2026-05-12-qa-005-conflict-race"
-  type: feature
-  branch: rung/0.4
-  goal: "Close audit-team v0.3.0 QA-005 ..."   # drafted from scope-lock §1
-  allowed_paths:
-    - civiccast/schedule/store.py              # drafted from scope-lock §1
-    - civiccast/schedule/router.py             # drafted from scope-lock §1
-    - tests/schedule/                          # drafted from scope-lock §1
-  forbidden_paths:
-    - civiccast/live/                          # drafted from scope-lock §4
-    - docs/adr/                                # drafted from append-only convention
-  ...
-```
-
-Reply APPROVE to start, or describe what to change.
-```
-
-You read it, reply `APPROVE`, and the pipeline runs. Three human gates along the way (manifest, plan, manager-decision), each in chat. The last one auto-fires when six machine-checkable conditions pass. Final result lands in `.agent-runs/<run-id>/` as a structured paper trail.
-
-That's it. No two-step new-run + run-pipeline. No blank YAML to fill in.
-
-## The three skills
-
-| Invocation | Purpose |
-| :--- | :--- |
-| `/agent-pipeline-claude:run "<short description>"` | Start a new run. Drafts the manifest, gates on APPROVE, orchestrates end-to-end. Also accepts `resume <run-id>` and `status`. |
-| `/agent-pipeline-claude:pipeline-init` | Onboard a project. Inspects what's there, scaffolds `.pipelines/`, `scripts/policy/`, and a starter `CLAUDE.md`. |
-| `/agent-pipeline-claude:audit-init` | Scaffold dual-AI audit-handoff infrastructure for projects where one AI implements and another audits. |
-
-## Why this plugin exists
-
-Agentic work fails in predictable ways:
-
-- The agent doesn't understand the project's conventions, so it improvises and the work silently diverges from the spec.
-- The agent claims tests pass without running them against a fresh dependency set.
-- The agent merges in-flight work while a scope question is open.
-- The agent picks architectural decisions silently rather than surfacing them.
-- The manifest the agent's working from doesn't match what the human actually wanted.
-
-The plugin enforces a structural pattern that catches every one of those:
-
-1. **Drafted scope contract.** The manifest is drafted from your project's existing docs and presented for one-click APPROVE. You review what the agent thinks the run is; you don't author it from blank.
-2. **Plan gate.** The planner produces a plan; you approve or send back.
-3. **Policy stage.** Automated checks block the run if the manifest fails strict schema validation, any change falls outside `allowed_paths`, the diff contains TODO/FIXME/HACK markers, or an existing ADR was modified.
-4. **Verifier stage.** Independent fresh-context check against every manifest exit criterion.
-5. **Drift-detector + critic stages.** Adversarial cold-read of every artifact across six lenses; comparison of assembled state against the manifest contract.
-6. **Judge layer (opt-in).** Real-time action-level supervision inside the executor stage. Every tool call is classified; dangerous ones spawn an independent judge subagent that allows / blocks / revises / escalates.
-7. **Auto-promote.** Six conditions checked from the artifact stack: verifier-clean, critic-clean, drift-clean, policy-passed, judge-clean, tests-passed. When all six pass, the manager gate auto-fires. When any fails, the human gate remains.
+---
 
 ## Install
 
-The plugin works in **Cowork** (the chat-first Claude Code surface) and in **Claude Code CLI**.
+```bash
+# Through Cowork / Claude Code marketplace (recommended):
+#   Open the plugin marketplace, search "agent-pipeline-claude", install.
 
-### Recommended: marketplace install
-
-```
-/plugin marketplace add scottconverse/agent-pipeline-claude
-/plugin install agent-pipeline-claude@agent-pipeline-claude
-```
-
-Then restart your Cowork session (fully Quit and reopen — plugin metadata loads at app startup) or run `/reload-plugins` in the CLI.
-
-### Alternative: file-level install (Cowork without marketplace UI)
-
-Paste this prompt into any Claude session:
-
-```
-Install the agent-pipeline-claude plugin for me.
-
-Method: clone https://github.com/scottconverse/agent-pipeline-claude
-into ~/.claude/plugins/marketplaces/agent-pipeline-claude. Add an
-agent-pipeline-claude marketplace entry to ~/.claude/plugins/known_marketplaces.json
-pointing at that path. Add agent-pipeline-claude@agent-pipeline-claude to
-~/.claude/plugins/installed_plugins.json with the cloned commit SHA.
-In ~/.claude/settings.json, set
-enabledPlugins["agent-pipeline-claude@agent-pipeline-claude"] = true and add
-the marketplace to extraKnownMarketplaces.
-
-Back up settings.json + known_marketplaces.json + installed_plugins.json
-before patching. After install, fully quit Cowork (or restart your CLI session)
-to load the new skills.
+# Or git-clone for development:
+git clone https://github.com/scottconverse/agent-pipeline-claude.git
+# Then point Claude Code at the local plugin dir.
 ```
 
-Claude will do the work. **Then fully restart Cowork.** After restart, `/agent-pipeline-claude:pipeline-init` and `/agent-pipeline-claude:run` are available.
+After install, in any project:
 
-### Local development / testing
-
-```
-claude --plugin-dir /path/to/agent-pipeline-claude
-```
-
-Loads the plugin for one session without installing. Useful for testing changes.
-
-## First use in a new project
-
-Drop into the project root and run:
-
-```
-/agent-pipeline-claude:pipeline-init
+```bash
+/agent-pipeline-claude:pipeline-init       # scaffold .pipelines/ + scripts/policy/
+/agent-pipeline-claude:run "<your goal>"   # start an autonomous run
+/agent-pipeline-claude:run status          # list runs in .agent-runs/
+/agent-pipeline-claude:run resume <id>     # pick up a halted run
 ```
 
-The plugin inspects what your project has — spec, release plan, CLAUDE.md, tests, CI workflows — produces a one-message orientation summary, and asks you to APPROVE before scaffolding. After APPROVE, you get:
+---
 
-```
-.pipelines/
-├── feature.yaml                    # stage sequence for new functionality
-├── bugfix.yaml                     # stage sequence for bug fixes
-├── module-release.yaml             # six-phase release pipeline
-├── manifest-template.yaml          # blank template with field docs
-├── action-classification.yaml      # opt-in: enables the v0.4 judge layer
-├── self-classification-rules.md    # pre-authorized cases the executor handles solo
-└── roles/
-    ├── manifest-drafter.md         # reads your spec, drafts the manifest
-    ├── researcher.md
-    ├── planner.md
-    ├── test-writer.md
-    ├── executor.md                 # has the pre-edit fact-forcing gate
-    ├── verifier.md
-    ├── drift-detector.md           # manifest contract vs assembled state
-    ├── critic.md                   # adversarial cold read, six lenses
-    ├── manager.md                  # auto-promote-aware
-    ├── judge.md                    # opt-in real-time action supervision
-    ├── preflight-auditor.md        # module-release Phase 0
-    ├── local-rehearsal.md          # module-release Phase 2
-    ├── cross-agent-auditor.md      # audit-handoff
-    └── implementer-pre-push.md     # audit-handoff
-scripts/policy/
-├── check_manifest_schema.py
-├── check_allowed_paths.py
-├── check_no_todos.py
-├── check_adr_gate.py
-├── auto_promote.py
-└── run_all.py
-CLAUDE.md                           # only created if you don't already have one
-.agent-runs/                        # gitignored — pipeline run artifacts land here
-```
+## The run shape
 
-The `CLAUDE.md` starter is short and includes a `## Pipeline drafter notes` section telling the manifest-drafter where this project keeps its spec, release plan, design notes, and ledgers. Edit it before your first `/agent-pipeline-claude:run` for best results.
+Three goal types, one pipeline:
 
-## Running a pipeline
+| Goal style | Example | What v2.0 does |
+|---|---|---|
+| **Single task** | `"fix the auth-timeout bug"` | One task, one commit, one PR. |
+| **Explicit sprint** | `"ship slice 1 commits 1-5"` | Read existing sprint plan; loop over its tasks; one PR at the end. |
+| **Open-ended** | `"get the cleanroom passing"` | Decompose into 3-7 tasks at draft time; loop; one PR. |
 
-```
-/agent-pipeline-claude:run "short description of the work"
-```
+In every case: ONE `AskUserQuestion` modal at the scope-gate step. Click GO once. The autonomous loop runs from there.
 
-That's the whole command. The drafter reads your project, drafts the manifest, shows it in chat. You reply `APPROVE` to start, or describe changes.
+---
 
-### Other shapes
+## The autonomous loop
 
-```
-/agent-pipeline-claude:run resume 2026-05-12-my-task-slug   # pick up a halted run
-/agent-pipeline-claude:run status                            # list runs in this project
-/agent-pipeline-claude:run                                   # same as `status`
-```
+For each task in scope:
 
-## The three human gates
+1. **Worker subagent** spawns with the task description, scope contract, allowed_paths, success criteria. It plans internally (no `plan.md` artifact), implements via Edit/Write, self-verifies via Bash (runs tests/lint/build).
+2. **Worker reports status** as the first line of its output file: `**Status: passes**` / `**Status: fails**` / `**Status: blocked**`.
+3. **Orchestrator decides**:
+   - `passes` → auto-commit on the run's branch with a semantic message → next task.
+   - `fails` → spawn worker again with `PRIOR_FAILURE_OBSERVATION` populated from the failure output. Max 3 attempts. After 3 failures, the task is blocked.
+   - `blocked` → escalate. If ≥50% of tasks have passed, SHIP_PARTIAL (commit WIP + run integration + push + open WIP PR). If <50%, HARD_HALT (commit WIP + write HANDOFF.md + exit).
+4. **After all tasks**: run integration suite, push branch, `gh pr create`, done.
 
-Each is a chat-message decision moment. Three universal verbs: `APPROVE` to accept, `REPLAN <description>` (or `<description>`) to revise, or — at the manager gate — `BLOCK` to halt.
+**That's the whole pipeline.** No separate research, plan, test-write, drift, critique, manager stages. No 11 artifacts. Just scope + worker outputs + run.log.
 
-1. **Manifest gate.** The drafted scope contract. You review YAML in chat and APPROVE or describe changes. The drafter loops on revision (max 5 cycles before falling back to a hand-edit prompt).
-2. **Plan gate.** After research → plan, you see the planner's plan summary inline + a count of files in the blast radius + a list of open questions. APPROVE or REPLAN.
-3. **Manager gate.** After everything else completes, the manager produces a PROMOTE / BLOCK / REPLAN recommendation citing the verifier, drift-detector, and critic findings verbatim. APPROVE / BLOCK / REPLAN.
+---
 
-When the auto-promote stage's six conditions all pass, the manager gate auto-fires (PROMOTE) and no human prompt appears. The run reports DONE-PROMOTED in its final summary.
+## Hard rules (baked in)
 
-## What about specs and release plans?
+- **ONE `AskUserQuestion` per run.** Period. The scope gate is the only modal. The loop is silent.
+- **Auto-commit per task.** Never `git add -A`. Stage allowed_paths only. Never batch commits.
+- **Always exit with something.** Hard blocker → WIP commit + HANDOFF.md + clean exit. Resumable.
+- **Never admin-merge a PR.** Never push tags. Never create releases. Operator-only.
+- **Self-feedback is the recovery loop.** Failure output goes verbatim into the next worker's prompt. No separate critique stage.
 
-The drafter reads these patterns at the project root (or under `docs/`):
+---
 
-| Category | Filename patterns it walks |
-| :--- | :--- |
-| Project spec | `*UnifiedSpec*.md`, `SPEC.md`, `PRD.md`, `REQUIREMENTS.md`, `docs/spec/*.md` |
-| Release ladder | `*ReleasePlan*.md`, `RELEASE-PLAN.md`, `ROADMAP.md`, `docs/spec/release-plan.md` |
-| Per-rung scope contract | `docs/releases/v*-scope-lock.md`, `docs/releases/<rung>-scope.md` |
-| Design notes | `docs/research/<version>-<feature>-design.md`, `docs/design/*.md` |
-| ADRs | `docs/adr/*.md` (closed architectural decisions) |
-| Conventions | `CLAUDE.md` at root |
-| Findings | `audit-*/`, `findings/*.md`, `next-cleanup.md` |
-
-If your project has none of these, the drafter falls back to a greenfield mode: it asks you to paste a 1-3 paragraph description and synthesizes a minimal spec + draft from it.
-
-**You can also tell the drafter where to look** in your `CLAUDE.md` under a `## Pipeline drafter notes` section. The `/agent-pipeline-claude:pipeline-init` scaffolder writes that section for you.
-
-## Plugin layout
+## What's in this plugin
 
 ```
 .claude-plugin/
-├── plugin.json              # plugin manifest
-└── marketplace.json         # marketplace manifest (validates with `claude plugin validate .`)
+  plugin.json                v2.0.0 manifest
+
 skills/
-├── run/
-│   ├── SKILL.md             # thin shim — frontmatter + tool mapping notes
-│   └── references/
-│       └── run.md           # canonical procedure
-├── pipeline-init/
-│   ├── SKILL.md
-│   └── references/
-│       └── pipeline-init.md
-└── audit-init/
-    ├── SKILL.md
-    └── references/
-        └── audit-init.md
-pipelines/                   # shared pipeline definitions copied into projects by `/agent-pipeline-claude:pipeline-init`
-scripts/                     # policy checks + check_skill_packaging.py self-contained-skill validator
-tests/                       # check_plugin_structure.py + manifest-schema unit tests + fixtures
+  run/                       /agent-pipeline-claude:run
+    SKILL.md
+    references/run.md        ← the autonomous procedure (heart of v2.0)
+
+  pipeline-init/             /agent-pipeline-claude:pipeline-init
+    SKILL.md
+    references/pipeline-init.md
+    references/pipeline-payload/   ← scaffolded into target projects
+
+  audit-init/                /agent-pipeline-claude:audit-init
+    SKILL.md                 (unchanged from v1.x; dual-AI audit-handoff infra)
+    references/
+
+pipelines/
+  sprint.yaml                outer pipeline (scope → ONE gate → loop → ship)
+  sprint-task.yaml           per-task pipeline (worker + retry + commit)
+  roles/
+    worker.md                THE role file. plan + implement + verify, single subagent.
+
+scripts/
+  scaffold_pipeline.py       deterministic scaffold (used by pipeline-init)
+  run_status.py              list runs (used by /run status path)
+  validate_scope.py          lightweight scope.md structure check
+
+tests/
+  test_v2_plugin_layout.py   pins the v2.0 contract
+  test_scaffold_pipeline.py
+  test_run_status.py
+  test_validate_scope.py
+
+README.md / USER-MANUAL.md / ARCHITECTURE.md / CHANGELOG.md / LICENSE
 ```
 
-Each skill is **self-contained** in its own folder — SKILL.md only references files inside `references/`, never repo-root files. This is enforced by `scripts/check_skill_packaging.py` (ported from agent-pipeline-codex), which simulates the plugin loader copying just `skills/<name>/` into a temp directory and verifies every backtick-quoted `references/...` path resolves.
-
-## v0.5 hardening (preserved in v1.1)
-
-v1.1 keeps every safety mechanism from v0.5 — only the surface around them changed.
-
-- **Critic stage** — adversarial cold read of every artifact in fresh context. Walks six lenses (engineering, UX, tests, docs, QA, scope). Emits `**Findings:**` count line for the auto-promote check.
-- **Drift-detector stage** — compares manifest contract against assembled final state. Catches durable doc drift, status-word abuse, cross-file inconsistency. Emits `**Drift:**` count line.
-- **Pre-edit fact-forcing in executor** — before the first edit per file, the executor must produce importers/callers, public API affected, schema, and the manifest goal quoted verbatim.
-- **Judge layer (opt-in via file presence)** — every executor tool call classified by risk; high-risk and external-facing calls spawn an independent judge subagent with verdict allow / block / revise / escalate.
-- **Machine-checkable auto-promote** — six conditions from the artifact stack: verifier-clean, critic-clean, drift-clean, policy-passed, judge-clean, tests-passed.
-- **Strict manifest schema validation** — minimum-length `goal` and `definition_of_done`, non-empty `expected_outputs` / `non_goals` / `rollback_plan`, forbidden status words banned. Failure messages include remediation pointers.
-
-## v0.2 module-release pipeline (preserved)
-
-For work whose end-state is a published release artifact, use `module-release` instead of `feature`:
+When `pipeline-init` runs in a project, it scaffolds:
 
 ```
-/agent-pipeline-claude:run "v1.2.0 release"
+<your-project>/
+  .pipelines/
+    sprint.yaml
+    sprint-task.yaml
+    roles/worker.md
+  scripts/policy/
+    run_status.py
+    validate_scope.py
+    __init__.py
 ```
 
-Six-phase pipeline: Phase 0 preflight (audit the release workflow before touching product code), Phase 1 scoped product work, Phase 2 local rehearsal on fresh state, Phase 3 remote release + umbrella reconciliation, Phase 4 verifier, Phase 5 manager. See `docs/module-release-handbook.md` for the full operator reference.
+---
 
-## v0.3 dual-AI audit-handoff (preserved)
+## Migration from v1.3.x
 
-For projects where one AI implements and a second AI audits, `/agent-pipeline-claude:audit-init` scaffolds the shared discipline (the in-repo 5-lens self-audit doc + the out-of-repo audit gate + audit protocol). See `docs/audit-handoff-handbook.md`.
+v2.0 is a deliberate scope reduction. The 14 role files, 11-stage feature pipeline, 18 policy scripts, and grant-based autonomous mode are GONE. See `CHANGELOG.md` for the full list.
 
-## Resuming a halted run
+**For existing v1.3 projects:**
 
-```
-/agent-pipeline-claude:run resume 2026-05-12-my-task-slug
-```
+- Run `pipeline-init` in the project. It detects the v1.3 `.pipelines/` and offers to back it up to `.pipelines.v1.3.bak/` before scaffolding v2.0 fresh.
+- In-flight v1.3 runs under `.agent-runs/` — finish them on v1.3 before upgrading (v2.0's run.md doesn't read v1.3 manifest format).
 
-The orchestrator reads the run's `run.log`, finds the last completed stage, and picks up at the next stage.
-
-## Where things live
-
-```
-.agent-runs/<run-id>/
-├── manifest.yaml              # the run's scope contract (drafted, then APPROVE'd)
-├── draft-provenance.md        # which manifest fields came from which sources
-├── research.md                # researcher's findings
-├── plan.md                    # planner's plan (after human APPROVE)
-├── failing-tests-report.md    # test-writer's output (feature pipeline only)
-├── implementation-report.md   # executor's output
-├── policy-report.md           # auto-policy checks results
-├── verifier-report.md         # independent verifier's report
-├── drift-report.md            # drift-detector findings
-├── critic-report.md           # critic's adversarial review
-├── auto-promote-report.md     # six-condition check (only when NOT_ELIGIBLE)
-├── manager-decision.md        # final PROMOTE/BLOCK/REPLAN
-├── judge-log.yaml             # action-level decisions (only when judge layer active)
-├── judge-metrics.yaml         # action-level metrics (only when judge layer active)
-└── run.log                    # chronological STAGE_DONE / STAGE_FAILED entries
-```
-
-## Migration from v1.0.x
-
-v1.1 removes the deprecated `/new-run` and `/run-pipeline` shims that v1.0 carried for v0.5.x compatibility. v1.1 also consolidates to the `skills/` layout (the `commands/` mirror that v1.0.1 added is gone — it caused name collisions). Three skills, all namespaced as `/agent-pipeline-claude:<skill>`.
-
-If you scripted against `/new-run` or `/run-pipeline`, replace with `/agent-pipeline-claude:run`.
-
-If you ever typed bare `/run`, switch to `/agent-pipeline-claude:run` — the bare form was never reachable for marketplace plugins (they're namespaced by Claude Code design).
-
-## Migration from v0.5.x
-
-If you skipped v1.0 and are upgrading directly from v0.5.x:
-
-- `/new-run` + `/run-pipeline` two-step is gone. Use `/agent-pipeline-claude:run "<description>"`.
-- Manifest is drafted from your project's spec; you no longer hand-author 11 fields from blank.
-- All three human gates are chat messages (APPROVE / REPLAN / BLOCK), not modal popups.
-
-Run `cd ~/.claude/plugins/marketplaces/agent-pipeline-claude && git pull && git checkout v1.1.0` to upgrade, then fully restart Cowork. See [CHANGELOG.md](CHANGELOG.md) for full migration notes.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and discussions welcome.
+---
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See `LICENSE`.
+
+## Contributing
+
+See `CONTRIBUTING.md`. Pull requests welcome; v2.0 is a brand-new surface and there's room for hardening, especially around the integration-suite handling and `gh pr create` body formatting.

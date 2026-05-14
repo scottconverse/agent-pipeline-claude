@@ -5,6 +5,78 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] — 2026-05-14
+
+**Autonomous sprint driver. Ground-up rewrite.**
+
+v1.0–v1.3 were variations on the same theme: an 11-stage feature pipeline with three mandatory human gates (manifest, plan, manager) and 14 role files. Even after v1.3.0's modal-gate fix, the structure forced ceremony for every shape of work — a 6-step verification cleanroom and a single bug fix both ran the same 11 stages. Operators reported spending more time clicking gates and reading artifact ceremony than seeing the agent actually ship product.
+
+v2.0.0 collapses the entire pipeline shape to a single autonomous loop with ONE initial scope-contract acknowledgment and zero mid-run gates. The redesign is informed by SWE-agent (`max_requeries=3`), Aider (`max_reflections=3`), OpenHands (stuck-detector at 3-4 repeats), Reflexion (failure-as-observation tutoring), GitHub release-please ("gate once, fan out many"), and LangGraph (checkpointed resumable state).
+
+### The new loop
+
+```
+type goal → orchestrator drafts scope.md → ONE AskUserQuestion (GO/REVISE/BLOCK)
+→ for each task in scope:
+    → spawn worker subagent (plan + implement + self-verify, status: passes/fails/blocked)
+    → if passes: auto-commit per task → next task
+    → if fails: retry worker with PRIOR_FAILURE_OBSERVATION prepended (Reflexion)
+      → max 3 attempts → if exhausted: escalate
+    → if blocked: escalate (≥50% passed → SHIP_PARTIAL with WIP PR; <50% → HARD_HALT with handoff)
+→ run integration suite → push branch → open PR → done
+```
+
+That's the whole flow. No `research.md`, `plan.md`, `failing-tests-report.md`, `implementation-report.md`, `policy-report.md`, `verifier-report.md`, `drift-report.md`, `critic-report.md`, `auto-promote-report.md`, `manager-decision.md`. The worker writes ONE artifact per task per attempt with its status on the first line. The orchestrator reads the status and decides commit-vs-retry.
+
+### Added
+
+- **`pipelines/roles/worker.md`** — single role that handles plan + implement + self-verify per task. Receives `PRIOR_FAILURE_OBSERVATION` on retry attempts (Reflexion pattern). Reports status as `passes` / `fails` / `blocked` on the first line of its output file.
+- **`pipelines/sprint.yaml`** — outer sprint pipeline (scope draft → ONE gate → task loop → ship).
+- **`pipelines/sprint-task.yaml`** — per-task pipeline (worker + commit + retry).
+- **`scripts/scaffold_pipeline.py`** — deterministic scaffold for the v2.0 minimal payload.
+- **`scripts/run_status.py`** — status helper for the `/agent-pipeline-claude:run status` path.
+- **`scripts/validate_scope.py`** — lightweight scope.md structure validator.
+- **35 unit tests** in `tests/test_v2_plugin_layout.py`, `test_scaffold_pipeline.py`, `test_run_status.py`, `test_validate_scope.py` pinning the v2.0 contract.
+
+### Removed (breaking — major version bump)
+
+**14 role files** (v1.3.x):
+- `critic.md`, `cross-agent-auditor.md`, `drift-detector.md`, `executor.md`, `implementer-pre-push.md`, `judge.md`, `local-rehearsal.md`, `manager.md`, `manifest-drafter.md`, `planner.md`, `preflight-auditor.md`, `researcher.md`, `test-writer.md`, `verifier.md`.
+
+**5 pipeline yamls** (v1.3.x):
+- `feature.yaml`, `bugfix.yaml`, `module-release.yaml`, `action-classification.yaml`, `manifest-template.yaml`.
+
+**2 skills** (v1.2.x deprecation shims):
+- `grant-autonomous`, `run-autonomous`.
+
+**18 policy scripts** (v1.3.x):
+- `auto_promote.py`, `check_active_target.py`, `check_adr_gate.py`, `check_allowed_paths.py`, `check_autonomous_compliance.py`, `check_autonomous_mode.py`, `check_critic_evidence.py`, `check_manager_evidence.py`, `check_manifest_immutable.py`, `check_manifest_paths.py`, `check_manifest_schema.py`, `check_no_todos.py`, `check_skill_packaging.py`, `check_stage_done.py`, `preflight_infrastructure.py`, `run_all.py`, `run_preflight.py`, `scaffold_pipeline.py` (rewritten for v2.0).
+
+**11 v1.3.x test modules** (replaced by the 4 v2.0 test modules above).
+
+### Migration notes
+
+- **Existing `.pipelines/` from v1.3.x** is incompatible with v2.0. `pipeline-init` does NOT auto-migrate; it offers to back up the v1.3 layout to `.pipelines.v1.3.bak/` and scaffold v2.0 fresh.
+- **In-flight v1.3 runs** under `.agent-runs/`: finish them on v1.3.0 first if possible. v2.0 doesn't read the v1.3 manifest schema.
+- **Custom pipelines with `gate_policy`, `autonomous_grant`, `required_gates`, `target_repos`, `advances_target`, `authorizing_source` manifest fields**: those fields are gone. The new scope.md format is markdown sections, not YAML keys.
+- **Custom policy scripts**: drop them or rewrite under the v2.0 shape. The autonomous loop doesn't call scripts during execution — only the worker subagent does, and it calls project commands directly (`pytest`, `npm test`, `cargo test`).
+
+### Why this is right
+
+- **The autonomous loop is the only thing that ships product.** Every human gate is ceremony unless it's catching a structural mistake — and v1.3.0 proved that the modal gates were firing on bounded verification runs where there was no structural mistake to catch.
+- **Bounded retries beat human escalation.** SWE-agent, OpenHands, and Aider all use max-3-attempts on failure with the observation prepended. None of them wake the operator. None of them ship less product than v1.3.x. They ship more.
+- **Self-feedback IS the recovery loop.** v1.3.x had separate verify → drift → critique → manager stages each producing an artifact. v2.0 puts the verifier output INTO the next worker attempt's prompt. The worker reads the failure and fixes it. One stage, not four.
+- **Always-exit-with-something.** When v2.0 hits a hard blocker, it commits in-flight work as a `wip(...)` commit, writes a HANDOFF.md, and exits cleanly with a resume instruction. v1.3.x halted with artifacts but no commit; v2.0 makes progress durable.
+
+### What stays the same
+
+- **Cowork-first slash-command surface.** `/agent-pipeline-claude:run "<goal>"`, `/agent-pipeline-claude:pipeline-init`, `/agent-pipeline-claude:audit-init`.
+- **Project-layer scaffolding.** `pipeline-init` still writes into `<your-project>/.pipelines/` and `<your-project>/scripts/policy/` — the project-layer files are now just `sprint.yaml`, `sprint-task.yaml`, `roles/worker.md`, `run_status.py`, `validate_scope.py`.
+- **Never admin-merge a PR.** Never push a tag. Never create a release. Operator-only.
+- **Audit-init skill** for projects that want the dual-AI handoff infrastructure.
+
+---
+
 ## [1.3.0] — 2026-05-14
 
 **Codex-aligned redesign: modal gates replace chat-APPROVE; grant + autonomous-mode removed entirely.**

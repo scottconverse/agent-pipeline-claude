@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# Sprint task pipeline (v2.0) — what one task looks like end-to-end.
+#
+# v2.0 collapses the v1.3 11-stage feature pipeline into ONE shape that
+# handles every task type (code change, doc edit, verification, release):
+#
+#   1. worker (autonomous: plan + implement + self-verify in one subagent)
+#   2. orchestrator-controlled commit (Bash, no subagent)
+#
+# The orchestrator (skills/run/references/run.md) loops over the sprint's
+# task list and runs this per task. The worker handles its own retry-with-
+# observation (Reflexion). Up to 3 attempts per task.
+#
+# This file documents the contract. The actual orchestration is in the
+# procedure, not in yaml interpretation — that was a v1.3 design failure
+# this release explicitly fixes.
+
+pipeline: sprint-task
+
+# Per-task stages (orchestrator iterates these per task in the sprint).
+stages:
+  - name: worker
+    role: worker
+    retry:
+      max_attempts: 3
+      observation_carryover: prior_failure_observation
+    artifact: task-{task_id}-attempt-{attempt}.md
+    success_signal: "**Status: passes**"   # first line of artifact
+
+  - name: commit
+    role: orchestrator    # parent session, no subagent
+    artifact: null        # commit lands on the run's branch
+    on_status_passes: commit_and_continue
+    on_status_fails: retry_worker
+    on_status_blocked: escalate
+    on_retry_exhausted: escalate
+
+# Escalation policy (when a task can't pass after 3 attempts).
+escalation:
+  threshold_passed_tasks_percent: 50
+  above_threshold: SHIP_PARTIAL    # commit WIP, run integration, push, open WIP PR
+  below_threshold: HARD_HALT       # commit WIP, write HANDOFF.md, exit; no push

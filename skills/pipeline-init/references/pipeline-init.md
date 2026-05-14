@@ -1,171 +1,133 @@
-# Pipeline-init procedure — onboard a project
+# Pipeline-init procedure (v2.0)
 
-You are onboarding a project for use with the agent-pipeline-claude plugin. Most projects only need to run this once.
-
-The plugin needs three things to do useful work later:
-1. A `.pipelines/` directory with role files + pipeline definitions.
-2. A `scripts/policy/` directory with the validation scripts.
-3. A `CLAUDE.md` capturing the project's conventions (the manifest-drafter reads it).
-
-This command produces all three, drafted from whatever the project already has.
+Initialize a project for autonomous pipeline runs. Scaffold the v2.0 minimal payload — one pipeline shape (sprint), one worker role, two policy helpers.
 
 ## Argument shapes
 
-`$ARGUMENTS` is one of:
+`$ARGUMENTS`:
 
-1. **Empty** — the common case. You're standing in the project root; this command inspects what's there.
-2. **A file path** — points at a PRD, spec, or description document. Read it as the source of truth for project orientation.
-3. **A URL** — a repo URL. The current working directory must be empty; this command will `git clone` then init.
-4. **A description paragraph** quoted at the prompt. Treat as inline-content PRD.
+| Shape | Action |
+|---|---|
+| empty | Inspect `$PWD`. If git repo → existing-project mode. If empty dir → greenfield mode. |
+| File path | Read as PRD/spec. Existing-project mode. |
+| URL | `git clone <url>` into a temp dir, then existing-project mode against the clone. |
+| Description paragraph | Greenfield mode with this description as the project intent. |
 
-## What to do
+---
+
+## Path 1 — existing-project mode (most common)
 
 ### Step 1 — orient
 
-Detect the project's current state:
+Read in this order (`Read` tool):
 
-```bash
-git status            # Are we in a repo? Clean tree?
-ls                    # What's at the root?
-git log --oneline -5  # Recent commits — gives context on the project's life
-```
+1. `CLAUDE.md` at project root (if present) — quote the non-negotiables.
+2. `README.md` — extract project description.
+3. `.git/HEAD` + `git log --oneline -10` — current branch, recent activity, commit-message convention.
+4. Existing `.pipelines/` (if present) — flag for re-init handling.
+5. Existing `scripts/policy/` (if present) — flag for re-init.
 
-Look for spec / release-plan / scope-lock / design-note artifacts using the same patterns the manifest-drafter walks (see `references/pipeline-payload/pipelines/roles/manifest-drafter.md` § "Source-walking protocol"). Look for stack indicators: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, etc. Look for `.github/workflows/`, `docs/adr/`, `CLAUDE.md`.
+### Step 2 — show orientation summary
 
-### Step 2 — produce a one-message orientation summary
-
-Send the user a single chat message with:
+Plain chat message (NO modal). Format:
 
 ```
-Project orientation:
+Orientation — <project name from README or dir name>
 
-  Name: <inferred>
-  Stack: <language, framework, test runner, lint, type checker>
-  Existing artifacts: <list of relevant docs found, e.g. "CivicCastUnifiedSpec-v2.md, CivicCast-ReleasePlan, docs/releases/v0.4-scope-lock.md, CLAUDE.md">
-  Missing: <gaps, e.g. "no docs/adr/ — the ADR policy gate will be disabled until you add one">
-  Test framework: <pytest | jest | unknown>
-  CI: <detected workflow files or "none">
+  CLAUDE.md:                 found | missing
+  README.md:                 found | missing
+  Branch:                    <current>
+  Commit convention:         <detected: Conventional Commits | conventional with scope | plain | unknown>
+  Existing .pipelines/:      <present (will preserve) | absent>
+  Existing scripts/policy/:  <present (will preserve) | absent>
 
-Reply `APPROVE` to scaffold .pipelines/ + scripts/policy/ + (if missing) CLAUDE.md.
-Reply `WAIT` to fix anything in the summary first.
-Reply with corrections in plain English and I'll re-summarize.
+Plan:
+  - Scaffold .pipelines/sprint.yaml, .pipelines/sprint-task.yaml,
+    .pipelines/roles/worker.md
+  - Scaffold scripts/policy/run_status.py, scripts/policy/validate_scope.py
+  - (Optional) write starter CLAUDE.md if missing
+
+  Reply APPROVE to scaffold, or REVISE to change the plan.
 ```
 
-Do NOT scaffold without an explicit `APPROVE`.
+Wait for user reply.
 
-### Step 3 — scaffold on APPROVE
+### Step 3 — handle the reply
 
-When the user replies `APPROVE`:
+- **APPROVE** → run `python scripts/scaffold_pipeline.py --target <project-root>` (use `--force` only if user explicitly said to overwrite an existing `.pipelines/`).
+- **REVISE** → wait for the user's revision; common revisions: "don't write CLAUDE.md", "force-overwrite the .pipelines/", "skip the policy scripts".
+- Any other text → treat as REVISE.
 
-**Source of truth for the scaffolded files:** the bundled payload at
-`references/pipeline-payload/` inside this skill (resolved relative to the
-skill's install directory — `skills/pipeline-init/`). The payload ships INSIDE
-the skill so it's always available, including when the plugin runs from an
-installed cache where the repo-root `pipelines/` and `scripts/` paths don't
-exist.
+### Step 4 — scaffold
 
-1. **`.pipelines/` directory.** Copy from `references/pipeline-payload/pipelines/` into the project root as `.pipelines/`:
-   - `feature.yaml`
-   - `bugfix.yaml`
-   - `module-release.yaml` (if user wants module-release support; default yes for projects with version files)
-   - `manifest-template.yaml`
-   - `self-classification-rules.md`
-   - `roles/` (all role files, including `manifest-drafter.md`)
-   - `templates/` (the audit-handoff templates)
+Use the bundled `scripts/scaffold_pipeline.py` (located at the plugin's `scripts/scaffold_pipeline.py`, which finds its bundled payload via `DEFAULT_PAYLOAD`).
 
-2. **`scripts/policy/` directory.** Copy from `references/pipeline-payload/scripts/` into the project root as `scripts/policy/`:
-   - `__init__.py`
-   - `check_manifest_schema.py`
-   - `check_allowed_paths.py`
-   - `check_no_todos.py`
-   - `check_adr_gate.py`
-   - `auto_promote.py`
-   - `run_all.py`
-
-3. **`.gitignore`** — append `.agent-runs/` if not already present.
-
-4. **`CLAUDE.md`** — if the project doesn't have one, scaffold a starter. The starter is short (no boilerplate) and includes ONLY:
-   - One paragraph: what this project is, derived from Step 2 orientation.
-   - `## Pipeline drafter notes` section — tells the manifest-drafter where this project keeps its spec, release plan, scope-locks, design notes, ledgers, and HANDOFF. This is the file's most important section for v1.0 operation.
-   - `## Order of operations` — three sentences on how changes flow (e.g. "branch from main, work in slices, tag at rung close").
-   - `## Tooling` — language, test runner, lint, type checker, pre-commit hooks.
-   - `## Non-negotiables` — empty placeholder for the user to fill in.
-
-   The user is expected to edit it. The plugin gives a starting shape, not the final word.
-
-5. **Final scaffold report.** Send a chat message:
-   ```
-   Scaffold complete.
-
-   Created:
-     .pipelines/  (<N> role files, <M> pipeline definitions)
-     scripts/policy/  (<K> validation scripts)
-     CLAUDE.md  (starter — edit before your first run)
-     .gitignore  updated
-
-   Missing pieces (you can fix any time):
-     - No docs/adr/ — ADR policy gate disabled until first ADR
-     - No tests/ directory — test-tracking will be approximate
-
-   Next step:
-     /run "short description of your first run"
-
-   IMPORTANT: if you just installed the plugin via the file-level
-   install (clone + JSON patch), restart Cowork before /run becomes
-   available in the slash-command palette.
-   ```
-
-### Step 4 — the Cowork install reality
-
-The user may be running `/pipeline-init` right after a fresh install. Two scenarios:
-
-**Scenario A — they used the file-level install (Cowork).** They cloned the repo and patched JSON files (or you/Claude did it for them). The slash commands register at session start, so the user is reading this in a fresh Cowork session AFTER restart. Everything works.
-
-**Scenario B — they used `/plugin install` (CLI with that command available).** Same outcome — the slash commands are available.
-
-If `/pipeline-init` itself doesn't appear available, the user can't be reading these instructions. So Scenario A/B is the universe; this command only runs once the plugin is loaded.
-
-What the command DOES need to flag, at end of Step 3: if the user then runs `/run` and gets "command not available," they should restart Cowork. The scaffold report's final paragraph names this.
-
-## Hard rules
-
-- Never overwrite an existing `CLAUDE.md`. If it exists, ask whether to APPEND a `## Pipeline drafter notes` section (the part the drafter needs) or skip.
-- Never overwrite an existing `.pipelines/` directory. If it exists, treat as re-init: ask whether to refresh the role files (and which) or skip.
-- Never copy any file outside the project root the user is in.
-- Never read or modify the plugin's own marketplace dir under `~/.claude/plugins/marketplaces/`.
-- Always produce an orientation summary BEFORE scaffolding. Show your reading; let the user correct it.
-
-## Greenfield handling
-
-If `$ARGUMENTS` is a description paragraph (no spec file exists, no repo to read), synthesize a minimal spec inline:
+Confirm with a final chat message after success:
 
 ```
-You gave me a description but no existing spec. Synthesizing a minimal
-spec now — review and reply APPROVE to write it to SPEC.md, or `WAIT`
-if you'd rather edit it inline first.
+Scaffolded into <project-root>:
+  .pipelines/sprint.yaml
+  .pipelines/sprint-task.yaml
+  .pipelines/roles/worker.md
+  scripts/policy/run_status.py
+  scripts/policy/validate_scope.py
+
+Next: invoke `/agent-pipeline-claude:run "<your goal>"` to start your first sprint.
+```
+
+### Step 5 — starter CLAUDE.md (only if missing)
+
+If no CLAUDE.md exists at root, ASK whether to write a starter — don't write unilaterally:
 
 ```
-[synthesized minimal spec: 1-2 paragraphs of purpose, target audience,
-core capabilities, tech-stack inferences, license]
-```
+No CLAUDE.md at project root. Want me to scaffold a starter?
+It will name the project's stack, test command, lint command, and branch convention based on what I saw — you edit from there. Reply YES or SKIP.
 ```
 
-Once approved, write `SPEC.md` at project root and continue to Step 2 with `SPEC.md` as the read source.
+If YES, write a minimal CLAUDE.md at `<project>/CLAUDE.md` derived from the orientation. Keep it ≤ 50 lines.
+
+---
+
+## Path 2 — greenfield mode
+
+If `$PWD` is an empty directory OR `$ARGUMENTS` is a description paragraph (not a file path or URL):
+
+1. Show orientation: "Greenfield project. I'll write a starter README.md + CLAUDE.md + a sprint.yaml/sprint-task.yaml/worker.md scaffold."
+2. APPROVE in chat → scaffold all of: starter README, starter CLAUDE.md, the v2.0 payload.
+
+---
+
+## Path 3 — URL mode
+
+If `$ARGUMENTS` is a URL (matches `^https?://` or `^git@`):
+
+1. `git clone <url>` into a sibling temp dir.
+2. `cd` into the clone.
+3. Continue with Path 1 (existing-project mode).
+
+---
 
 ## Re-init handling
 
-If `.pipelines/` already exists, the project was initialized before. Send:
+If `.pipelines/` already exists in the target:
 
-```
-Project is already initialized (.pipelines/ exists with <N> files).
+1. The orientation message names this explicitly.
+2. APPROVE without `--force` is a NO-OP for the .pipelines/ side (script returns exit 1 with a clean error).
+3. To overwrite, the user replies `APPROVE --force` (treat as the force flag) OR explicitly says "overwrite the existing .pipelines/".
 
-Want to:
-  (a) Refresh role files from the current plugin version (useful after upgrading the plugin).
-  (b) Refresh policy scripts only.
-  (c) Refresh everything (role files + policy scripts + manifest template).
-  (d) Cancel — leave the existing setup as-is.
+For an old v1.3 layout in `.pipelines/` (feature.yaml + 14 role files + manifest-template.yaml), pipeline-init does NOT auto-migrate. Offer:
 
-Reply with a, b, c, or d.
-```
+- "Backup the v1.3 .pipelines/ to .pipelines.v1.3.bak and write v2.0 fresh? (Reply YES or BACKUP-ONLY)"
 
-Apply the selected option; do NOT touch the user's `.agent-runs/`, manifests, or CLAUDE.md without explicit consent.
+The user makes the call. Migration is not automatic; v2.0 is a deliberate scope reduction and the operator should see what's being dropped.
+
+---
+
+## Hard rules
+
+- **Never overwrite CLAUDE.md** without explicit YES.
+- **Never overwrite `.pipelines/`** without explicit `--force` or "overwrite" intent.
+- **Never write outside the project root.**
+- **Never read the plugin's `~/.claude/plugins/marketplaces/` directory.** Read only the project under inspection.
+- **One chat-APPROVE per init.** No modal dialog. Pipeline-init is light.
+- **The scaffold is deterministic.** `scripts/scaffold_pipeline.py` is the single source — there's no manual file-by-file copy from the skill.

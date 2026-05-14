@@ -1,36 +1,33 @@
 ---
 name: run
-description: Start, resume, or list pipeline runs. Drafts a per-run scope contract from the project's spec, presents it for APPROVE via a fast modal gate, then orchestrates research → plan → execute → verify → critique end-to-end. Auto-promotes evidence-driven when all checks pass; otherwise asks one fast modal question at each human gate. Invoked as /agent-pipeline-claude:run.
+description: Autonomous sprint driver for Claude Code. Type ONE goal, click GO once, walk away — the agent decomposes the goal into tasks, executes each end-to-end (plan → implement → verify → auto-fix on failure with bounded Reflexion-style retries), auto-commits per task with semantic messages, opens a PR at sprint end. Zero mid-run gates. Bounded retries (max 3 per task) instead of human escalation. Always exits with something — partial PR if a hard blocker was hit, full PR if it shipped. Invoked as /agent-pipeline-claude:run "<goal>". Goal may be a single task ("fix the auth timeout"), an explicit sprint ("ship slice 1 commits 1-5"), or open-ended ("get the cleanroom passing"). For status of in-flight runs use /agent-pipeline-claude:run status. To resume a halted run use /agent-pipeline-claude:run resume <run-id>.
 ---
 
 # Run
 
-Follow the canonical workflow in `references/run.md`. That document is the single source of truth for argument shapes, the manifest gate, the plan gate, the manager gate, stage orchestration, resume logic, and status listing.
+Follow the canonical procedure in `references/run.md`. That file is the single source of truth for the autonomous loop, the one initial gate, the bounded retry mechanism, sprint decomposition, task execution, the auto-commit cadence, and the always-exit-with-something semantics.
 
-Tool mapping for Claude Code:
+Tool mapping:
 
-- When the procedure says **`Agent`**, use the Agent tool to spawn a subagent with the appropriate role file from `.pipelines/roles/`.
-- When the procedure says **`Bash`**, use the Bash tool from the project root.
-- When the procedure says **gate via AskUserQuestion**, use the AskUserQuestion tool with the exact question + options listed. ONE modal click advances the gate — fast, structured, unambiguous.
+- **`Agent`** → spawn a subagent using a role file from `<project>/.pipelines/roles/` (or the plugin's bundled defaults). The procedure names which role per stage.
+- **`Bash`** → shell ops from the project root (git, tests, lint, build).
+- **`AskUserQuestion`** → fires EXACTLY ONCE per run, for the initial scope-contract acknowledgment. Never inside the autonomous loop.
 
-`$ARGUMENTS` is the user's text after the slash command. The procedure parses its first whitespace-separated token to decide between new run / `resume` / `status`.
+`$ARGUMENTS` is one of:
+
+- A goal string — common path. The procedure auto-classifies it (single-task vs sprint vs verification) and routes to the appropriate shape.
+- `status` (or empty) — list runs in `.agent-runs/` with last-stage status. Read-only.
+- `resume <run-id>` — pick up a halted run from its last completed stage.
 
 Hard rules:
 
-- **(v1.2.0+) Read the project's control plane BEFORE drafting the manifest.** Look at `.agent-workflows/PROJECT_CONTROL_PLANE.md`, `.agent-workflows/ACTIVE_WORK_QUEUE.md`, `docs/RELEASE_PLAN.md`, or `docs/PROJECT_CONTROL_PLANE.md` (first one that exists wins). The control plane names the active target. If the user's task description does not align with that target, STOP and either propose alignment OR ask the user to set `override_active_target` with a 2+ sentence reason. Do not draft an off-priority manifest. `check_active_target.py` enforces this at preflight stage 0.5; surfacing the conflict at draft time is faster + cheaper.
-- **(v1.2.0+) Manifest requires `advances_target` and `authorizing_source`.** The drafter populates them from the control plane. Without a control plane, set `advances_target` from the user description and `authorizing_source` empty (preflight runs informational mode).
-- **(v1.3.0) Gates fire as modal AskUserQuestion prompts.** No chat-APPROVE ceremony. No conversational "reply APPROVE." One modal, one click, gate advances. This is the structural answer to the v1.2.x failure mode where the LLM either invented extra prompts or chickened out at the gate.
-- **(v1.3.0) Auto-promote is the path to hands-off.** When `auto_promote.py` reports ELIGIBLE (verifier clean, critic clean, drift clean, policy passed, tests passed), the manager stage skips the human gate entirely. The manager subagent runs in validate-and-append mode. This is the ONLY automation mechanism — no separate "autonomous mode," no grant files, no signed authorization documents.
-- **(v1.3.0) Operations the run skill never performs autonomously:**
-  - Admin-merging a PR (`gh pr merge --admin`)
-  - Pushing a tag (`git push origin <tag>` or `git push --tags`)
-  - Creating a release (`gh release create`)
-  - Force-pushing (`git push --force`)
-  - Modifying shared state outside `manifest.allowed_paths`
-  These are operator-driven outside the pipeline. The pipeline opens PRs; the operator merges them.
-- Never silently skip a stage.
-- Never advance past a `BLOCKED` or `FAILED` stage.
-- Never rewrite `run.log` (append-only).
-- Never modify the manifest mid-run. `check_manifest_immutable.py --check` will catch mutations and fail the policy stage.
-- Never write outside `.agent-runs/<run_id>/` and the project working tree.
-- At any halt, give the exact resume instruction: `/agent-pipeline-claude:run resume <run-id>`.
+- **ONE gate per run, period.** Initial scope-contract acknowledgment is the only modal `AskUserQuestion`. After GO, the loop runs autonomously until success, hard blocker, or bounded-retry exhaustion. No plan gate. No manager gate. No "view plan" detour. No "would you like me to continue?"
+- **Bounded retries beat human gates.** On verifier failure, the fixer subagent runs with the failure observation prepended (Reflexion pattern). Up to 3 fix cycles per task. After 3, stop the run and exit with a partial-PR + handoff describing the blocker.
+- **Auto-commit per task.** Every task that passes verification gets committed on the run's branch with a semantic message (`type(scope): summary`). No batch commits at the end. Progress is durable per task — if the run halts at task N, tasks 1..N-1 are committed and resumable.
+- **Always-exit-with-something.** Even on hard blocker: write a one-paragraph blocker description, commit any in-flight work as a WIP commit if non-empty, surface the resume instruction. Never crash silently.
+- **Never admin-merge a PR, push a tag, or create a release.** These are operator decisions. The pipeline pushes the branch and opens the PR (auto), but the human merges.
+- **Never modify the scope contract mid-run.** The contract is locked at GO. If a task surfaces work outside the contract, mark it `out-of-scope` in the run log and skip it.
+- **Self-feedback is the recovery loop.** When tests fail, the failure output IS the next agent's input. No separate "critique" stage. Errors get stuffed back into the prompt for the next attempt (SWE-agent / Aider pattern).
+- **Status vocabulary in artifacts is binary or quantitative — no "done / complete / ready / shippable" status words.** Use `passes / fails / partial / blocked / pending` for human-readable state.
+- **Never write outside `.agent-runs/<run-id>/` and the project working tree** that the run is authorized to modify per its scope contract.
+- **`free -g`, `df -h`, dependency presence checks BEFORE infrastructure work.** Verification-shape runs that depend on Docker / GPU / specific RAM check those pre-conditions BEFORE the long-running stage. Don't burn a 30-minute install just to fail at minute 31.

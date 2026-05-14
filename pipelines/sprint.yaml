@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+# Sprint pipeline (v2.0) — the outer loop.
+#
+# A sprint is an ordered task list with a shared scope contract. The
+# orchestrator runs each task using the sprint-task pipeline; the sprint
+# pipeline handles the outer concerns: scope drafting, the one initial
+# gate, the per-task loop, and final shipping.
+#
+# Like sprint-task.yaml, this file documents the contract. The actual
+# orchestration logic lives in skills/run/references/run.md.
+
+pipeline: sprint
+
+stages:
+  - name: scope-draft
+    role: orchestrator    # main session; reads project state, drafts scope.md
+    artifact: scope.md
+
+  - name: scope-gate
+    role: human
+    gate: AskUserQuestion
+    options: [GO, REVISE, BLOCK]
+    on_GO: proceed
+    on_REVISE: redraft   # loop back to scope-draft, max 3 cycles
+    on_BLOCK: halt
+
+  - name: task-loop
+    role: orchestrator
+    iterate_over: scope.tasks
+    per_task_pipeline: sprint-task    # see sprint-task.yaml
+    on_all_pass: ship
+    on_partial_pass_above_threshold: ship_partial   # see sprint-task.yaml escalation
+    on_partial_pass_below_threshold: halt_with_handoff
+
+  - name: integration
+    role: orchestrator
+    command: <project-defined test/build command (auto-detect or read from CLAUDE.md)>
+    artifact: integration.log
+    on_pass: push_and_pr
+    on_fail: worker_final_attempt   # one more worker shot, no allowed_paths cap
+    after_final_attempt_pass: push_and_pr
+    after_final_attempt_fail: push_and_wip_pr
+
+  - name: push-and-pr
+    role: orchestrator
+    actions:
+      - git push -u origin <branch>
+      - gh pr create --title "..." --body "..."
+    artifact: pr-url.txt
+
+# Hard rules baked into orchestration:
+# - ONE AskUserQuestion total (scope-gate). The task-loop is autonomous.
+# - Auto-commit per task. Never batch. Never `git add -A`.
+# - Always-exit-with-something. Even on hard halt, WIP committed + HANDOFF.md.
+# - Never admin-merge PR. Never push tags. Never create releases.
