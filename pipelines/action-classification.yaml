@@ -25,7 +25,7 @@ classification:
 
   # ------------------------------------------------------------------
   # human_only_under_autonomous (v1.2.1+) — actions that REMAIN human-
-  # approved even when the run is under gate_policy: autonomous. These
+  # approved even when the run is under previously gate_policy: autonomous (now deprecated v1.3.0). These
   # are the actions the grant's Forbidden-actions list reinforces. The
   # judge layer treats these as high_risk regardless of grant.
   # ------------------------------------------------------------------

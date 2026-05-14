@@ -1,8 +1,8 @@
-# Run procedure — drafted-and-driven pipeline run
+# Run procedure — drafted-and-driven pipeline run (v1.3.0)
 
-You are the single entry point for a pipeline run. Replaces v0.5.2's separate `/new-run` + `/run-pipeline`.
+You are the single entry point for a pipeline run. Replaces v1.2.x's run + run-autonomous + grant-autonomous trio.
 
-You do NOT do the work of any stage yourself. You drive the orchestrator and the user-facing chat surface. Stage work is delegated to subagents via the `Agent` tool (or to policy scripts via Bash). Your job is the loop, the human gates, and the run-log.
+You do NOT do the work of any stage yourself. You drive the orchestrator and the user-facing gate surface. Stage work is delegated to subagents via the `Agent` tool (or to policy scripts via Bash). Your job is the loop, the human gates, and the run-log.
 
 ## Argument shapes
 
@@ -33,165 +33,100 @@ Default to `feature`. Override only if:
 - `$ARGUMENTS` contains "bug" / "fix" / "regression" → `bugfix`
 - `$ARGUMENTS` contains "release" / "ship" / "tag" / "module-release" → `module-release` (if `.pipelines/module-release.yaml` exists)
 
-If you guess and you're not sure, say what you're guessing in the next prompt: *"I'm reading this as a feature run. If it's a bugfix or release run, reply now; otherwise I'll proceed."* Don't ask a separate AskUserQuestion — fold the guess into the next message.
+If you guess and you're not sure, name your guess in the next user-facing message: *"I'm reading this as a feature run. If it's a bugfix or release run, reply now; otherwise I'll proceed."*
 
 ### Step 3 — generate run id
 
 `run_id = "{today_iso_date}-{slug}"`. `today_iso_date` is `YYYY-MM-DD` from `date +%Y-%m-%d`. `slug` is the user's description normalized: lowercase, ASCII, kebab-case, max 60 chars, drop articles/filler.
 
-Example: `"close QA-005 conflict-409 race"` → `2026-05-11-close-qa-005-conflict-409-race` (or tighter: `2026-05-11-qa-005-conflict-race`).
-
 If a directory `.agent-runs/<run_id>/` already exists, append `-2`, `-3`, etc.
 
 ### Step 4 — spawn the manifest drafter
 
-`mkdir -p .agent-runs/<run_id>/`. Then spawn a fresh subagent via the `Agent` tool, role file `.pipelines/roles/manifest-drafter.md`, with arguments:
+`mkdir -p .agent-runs/<run_id>/`. Initialize `run.log` with a `RUN_STARTED` line.
+
+Then spawn a fresh subagent via the `Agent` tool, role file `.pipelines/roles/manifest-drafter.md`, with arguments:
 
 - `run_id` — the generated id.
 - `pipeline_type` — feature / bugfix / module-release.
 - `user_description` — the user's verbatim `$ARGUMENTS` text.
 - `project_root` — the current working directory.
 
-The drafter:
-1. Walks the project root for known spec patterns (see role file).
-2. Reads the matched files.
-3. Drafts every derivable manifest field from those files.
-4. Writes `.agent-runs/<run_id>/manifest.yaml`.
-5. Writes `.agent-runs/<run_id>/draft-provenance.md` (which field came from which source).
-6. Returns a one-line summary string: e.g. *"Drafted from `docs/releases/v0.4-scope-lock.md` §1 + `docs/research/v04-slice1-design.md`. 8/11 fields auto-derived, 3 hand-required (highlighted)."*
+The drafter walks the project root for known spec patterns, reads matched files, drafts every derivable manifest field, writes `.agent-runs/<run_id>/manifest.yaml` and `.agent-runs/<run_id>/draft-provenance.md`, and returns a one-line summary string.
 
 ### Step 5 — validate the draft
 
-Run `python scripts/policy/check_manifest_schema.py --run <run_id>`. If it fails, **do not show the user the raw error**. Instead:
+Run `python scripts/policy/check_manifest_schema.py --run <run_id>`. If it fails, re-spawn the drafter with `revision_request: "<the specific schema failure>"` and instructions to fix. Re-validate. If still fails after one revision, fall back to "partial draft" presentation at the gate.
 
-1. Read the error from stderr.
-2. Re-spawn the drafter with `revision_request: "<the specific schema failure>"` and instructions to fix.
-3. Re-validate.
-4. If it still fails after one revision, fall back to "partial draft" presentation (see Step 6 state 5).
+### Step 6 — manifest gate (AskUserQuestion)
 
-### Step 6 — present the draft in chat
+Render a brief summary of the drafted manifest in chat (top-line goal, allowed_paths, definition_of_done, advances_target). Then fire **ONE** AskUserQuestion:
 
-Render the manifest inline in a fenced code block. Top: the drafter's one-line summary. Bottom: a single chat-message gate prompt.
+- **question**: `Manifest drafted at .agent-runs/<run_id>/manifest.yaml. Approve to start the run, or block to revise.`
+- **header**: `Manifest gate`
+- **options**:
+  - label `APPROVE` — `Start the run. Spawn the researcher next.`
+  - label `Revise` — `Stop. I'll describe what to change in my next message.`
+  - label `View full manifest` — `Print the complete manifest file to chat for review.`
 
-Five surface states (use the one that matches):
+Handle:
+- `APPROVE` → log `MANIFEST_APPROVED` to run.log, proceed to Step 7
+- `Revise` → wait for the user's revision text, re-spawn drafter with `revision_request:`, loop back to Step 6 (max 5 cycles)
+- `View full manifest` → Read the manifest, print verbatim in chat, then immediately fire the same AskUserQuestion again
 
-**State 1 — populated draft (success).** Most common.
-```
-Drafted from <sources>. <N>/<M> fields auto-derived, <K> hand-required.
-
-```yaml
-[manifest contents]
-```
-
-Reply `APPROVE` to start the run, or describe what to change.
-```
-
-**State 2 — greenfield (no spec found).**
-```
-No spec or release-plan found at the project root or under docs/.
-
-I can either:
-  (a) Synthesize a minimal spec + draft the manifest from a description
-      you paste in your reply.
-  (b) You fill the manifest by hand at .agent-runs/<run_id>/manifest.yaml,
-      then reply `READY`.
-
-Which?
-```
-
-**State 3 — partial (drafter punted on some fields).**
-```
-Drafted <N>/<M> fields. <K> need your call (each marked `# NEEDS REVIEW`
-in the YAML below).
-
-```yaml
-[manifest with NEEDS REVIEW comments]
-```
-
-Reply with the <K> fields filled in, or `APPROVE` to accept my best-guess
-defaults for them.
-```
-
-**State 4 — schema error after one revision.**
-```
-Drafter couldn't produce a schema-passing manifest after one revision.
-Falling back: please edit .agent-runs/<run_id>/manifest.yaml by hand,
-fix the schema issues noted below, and reply `READY`.
-
-Schema issues:
-  - <field>: <problem> (current: "<value>")
-  - <field>: <problem>
-
-The file already has my best draft — only the flagged fields need edits.
-```
-
-**State 5 — loading (transient; emit only if the drafter takes > 8s).**
-```
-Reading project: spec / release-plan / scope-lock / design notes / ADRs / ledgers...
-```
-
-### Step 7 — wait for user reply
-
-Three possible responses:
-
-- **`APPROVE`** (or `OK`, `YES`, `LGTM`, `GO`) → proceed to Step 8.
-- **`READY`** (only after State 4 / State 2b) → re-validate the now-edited manifest. If clean, proceed to Step 8. If still invalid, surface the new errors with remediation hints.
-- **Anything else** → treat as revision instructions. Re-spawn the drafter with `revision_request: "<user's verbatim text>"`. Loop back to Step 6.
-
-Maximum 5 revision cycles. If exceeded, escalate: *"We've revised the manifest 5 times. Either the spec is ambiguous (consider clarifying the source doc) or I'm misreading you. Want to edit the manifest directly at `.agent-runs/<run_id>/manifest.yaml` and reply `READY`?"*
-
-### Step 8 — orchestrate the pipeline
+### Step 7 — orchestrate the pipeline
 
 Read `.pipelines/<pipeline_type>.yaml`. For each stage in order:
 
-1. **Read the artifact filename** from the stage definition.
-2. **If the artifact already exists** (resumed run), skip the stage and log `STAGE_SKIPPED: <name> (artifact exists)`.
-3. **If `role: pipeline`**, execute the `command` field via Bash. Capture stdout+stderr to `.agent-runs/<run_id>/<artifact>`. Append to `run.log`. On non-zero exit, surface the failure with a remediation hint (see Step 9 failure messages).
-4. **If `role: human`**, this is a gate. The manifest stage at index 0 was already gated in Step 6-7; downstream human gates (`plan`, `manager`) follow Step 9 gate-prompt shapes.
-5. **Otherwise** (role is an agent role: `researcher`, `planner`, `executor`, `verifier`, `drift-detector`, `critic`, `manager`), spawn a subagent via `Agent` with role file `.pipelines/roles/<role>.md`. Pass: `run_id`, `manifest_path`, `prior_artifacts_dir`. The subagent writes its artifact. On return, validate the artifact exists and is non-empty.
+1. **Skip if artifact exists** (resumed run): log `STAGE_SKIPPED: <name> (artifact exists)`.
+2. **If `role: pipeline`**, execute the `command` field via Bash. Capture stdout+stderr to `.agent-runs/<run_id>/<artifact>`. On non-zero exit, surface the failure (see failure-message shape below) and STOP.
+   - **Special case `auto-promote`**: exit 0 means ELIGIBLE (manager-decision.md was preset by auto_promote.py); exit 1 means NOT_ELIGIBLE (auto-promote-report.md names which conditions failed). Both advance the pipeline. Only exit 2 (run dir not found) is a real failure.
+3. **If `role: human`** with `gate: human_approval`, this is a mid-run gate. Fire Step 8 (plan gate) or Step 9 (manager gate) per the stage name.
+4. **Otherwise** (an agent role: `researcher`, `planner`, `test-writer`, `executor`, `verifier`, `drift-detector`, `critic`, `manager`), spawn a subagent via `Agent`:
+   - Read `.pipelines/roles/<role>.md` in full.
+   - Build the run-context block: manifest content + every prior stage's artifact file content (concatenated with `--- <filename> ---` separators).
+   - Spawn description: `<role> stage for run <run-id>`.
+   - Prompt: the role file content verbatim + `\n\n---\n\nRUN CONTEXT:\n` + run-context block + `\n\nRUN ID: <run-id>\nWRITE YOUR OUTPUT to .agent-runs/<run-id>/<artifact> and stop.`
+   - After subagent returns, verify the artifact exists and is non-empty (`test -s` via Bash).
+   - On missing/empty artifact: log `STAGE_FAILED: <name> (artifact not produced)`, surface failure, STOP.
+   - On success: log `STAGE_DONE: <name>` and continue.
 
 After each stage, append a single line to `.agent-runs/<run_id>/run.log`:
 ```
-<ISO-timestamp> STAGE_DONE <stage-name> artifact=<filename> bytes=<size>
+<ISO-timestamp> STAGE_DONE: <stage-name>
 ```
 
-### Step 9 — human gates mid-run (plan + manager)
+### Step 8 — plan gate (after `plan` stage)
 
-**Plan gate** (after `plan` stage):
+After the planner writes `plan.md`, fire ONE AskUserQuestion:
 
-```
-Plan drafted at .agent-runs/<run_id>/plan.md.
+- **question**: `Plan drafted. Approve to start execution, replan to revise, or block to halt.`
+- **header**: `Plan gate`
+- **options**:
+  - label `APPROVE` — `Start execution. Spawn the executor next.`
+  - label `REPLAN` — `Stop and revise. I'll describe what to change in my next message.`
+  - label `View plan` — `Print plan.md to chat for review.`
+  - label `Block` — `Stop the run with a finding.`
 
-**Summary**: <first 3 bullet points from plan §Summary>
+Surface (above the question) the first 3 bullets from plan.md §Summary, the files-touched count from §Blast radius (top 5), and the count of items in §Open Questions if any.
 
-**Blast radius**: <files-touched count> files (<list top 5>)
+Handle as in Step 6.
 
-**Open questions for you**: <count from plan §Open Questions>
-<list each as a numbered question>
+### Step 9 — manager gate (after `auto-promote` stage, only if `auto_promote_aware: true` AND NO PROMOTE preset)
 
-Reply `APPROVE` to start execution, `REPLAN <changes>` to revise, or
-answer the open questions and I'll re-plan.
-```
+Before firing the gate, check if `manager-decision.md` already exists with `**Decision: PROMOTE**` as its first non-empty line. If yes, the auto-promote stage already wrote it. Spawn the manager subagent in **validate-and-append** mode (it appends a confirmation section without rewriting the verdict), log `STAGE_DONE: manager (auto-promoted)`, and skip the gate entirely.
 
-**Manager gate** (after `auto-promote` stage, only if auto-promote did NOT fire):
+If no preset, fire ONE AskUserQuestion:
 
-```
-Run did not auto-promote.
+- **question**: `Manager's recommendation: <PROMOTE | BLOCK | REPLAN>. <one-line reasoning>. Confirm?`
+- **header**: `Manager gate`
+- **options**:
+  - label `APPROVE manager verdict` — `Accept the manager's recommendation as the final decision.`
+  - label `BLOCK` — `Override manager: stop the run with a finding.`
+  - label `REPLAN` — `Override manager: revise the manifest or plan.`
+  - label `View manager decision` — `Print manager-decision.md to chat for review.`
 
-  Verifier: <N> open items
-  Critic:   <M> findings (<S> structural)
-  Drift:    <P> findings
-
-Manager's recommendation: <PROMOTE | BLOCK | REPLAN>
-
-Reasoning (full at .agent-runs/<run_id>/manager-decision.md):
-<first paragraph of manager's decision>
-
-Reply `APPROVE` to accept the manager's recommendation, `BLOCK` to halt,
-or `REPLAN <description>` to revise.
-```
-
-If auto-promote DID fire, no manager gate prompt — just log `STAGE_DONE auto-promote PROMOTED` and finish.
+Surface (above the question) the counts: verifier open items, critic findings (with structural breakdown), drift findings, and the first paragraph of manager-decision.md.
 
 ### Step 10 — final report
 
@@ -200,13 +135,13 @@ After the last stage:
 ```
 Run complete: <run_id>
 
-  Pipeline: <type>
-  Final disposition: PROMOTED | BLOCKED | NEEDS_REPLAN
-  Stages: <count> done, <skipped> skipped
-  Duration: <elapsed>
-  Artifacts: .agent-runs/<run_id>/
+  Pipeline:           <type>
+  Final disposition:  PROMOTED | BLOCKED | NEEDS_REPLAN
+  Stages done:        <count>
+  Artifacts:          .agent-runs/<run_id>/
+  Auto-promoted:      <yes if manager gate skipped; no otherwise>
 
-  Next step: <suggested git/PR action based on disposition>
+  Next step:          <suggested git/PR action based on disposition>
 ```
 
 ---
@@ -215,20 +150,20 @@ Run complete: <run_id>
 
 `$ARGUMENTS` starts with `resume`. Take the second token as `run_id`.
 
-1. Verify `.agent-runs/<run_id>/run.log` exists. If not, stop with: *"No run at `.agent-runs/<run_id>/`. Try `/run status` to see available runs."*
+1. Verify `.agent-runs/<run_id>/run.log` exists. If not: *"No run at `.agent-runs/<run_id>/`. Try `/run status` to see available runs."*
 2. Read `run.log`. Find the last `STAGE_DONE` line. That's the resumption point.
-3. Skip to Step 8 above; the resumed run picks up at the next stage in the pipeline definition.
+3. Skip to Step 7 (orchestrate). The orchestrator picks up at the next stage.
 
-If the last log line is a `STAGE_FAILED`, surface the failure with the same remediation shape as Step 9 and ask whether to retry or abort.
+If the last log line is `STAGE_FAILED` or `STAGE_BLOCKED`, surface the failure shape and fire AskUserQuestion: retry / abort / view-log.
 
 ---
 
 ## Path 3 — status (also empty `$ARGUMENTS`)
 
-List `.agent-runs/*/` directories sorted by mtime descending. For each, read `run.log` and report:
+List `.agent-runs/*/` directories sorted by mtime descending. For each, read `run.log` and report a single line:
 
 ```
-<run_id>           <pipeline-type>    last: <last-stage> at <relative-time>    status: <RUNNING | HALTED_AT_GATE | DONE | FAILED>
+<run_id>      <pipeline-type>   last: <stage-name> at <relative-time>   status: <RUNNING | HALTED_AT_GATE | DONE | FAILED>
 ```
 
 Maximum 10 rows. If more exist, suffix `(... <N> older)`.
@@ -237,11 +172,12 @@ Maximum 10 rows. If more exist, suffix `(... <N> older)`.
 
 ## Hard rules
 
-- One slash command per project session. If a `/run` is already in flight (look for the most recent `.agent-runs/<run_id>/run.log` ending in a `STAGE_STARTED` line without a paired `STAGE_DONE`), refuse to start a new one; offer `resume` or explicit abort.
-- Never write outside `.agent-runs/<run_id>/` and the project working tree the pipeline stages themselves modify.
-- Never invoke `AskUserQuestion` for the three gates (manifest / plan / manager). Use chat messages. `AskUserQuestion` is reserved for mid-stage disambiguating questions where modal interaction adds value (rare).
-- Never proceed past a failed validation by guessing. Surface the failure with remediation pointers; let the user steer.
-- Never re-prompt for `APPROVE` after receiving it. The next message advances to the next stage.
+- **One slash command per project session.** If a `/run` is already in flight (the most recent `.agent-runs/<run_id>/run.log` ends in `STAGE_STARTED` without a paired `STAGE_DONE`), refuse to start a new one; offer `resume` or explicit abort.
+- **Use AskUserQuestion for ALL three gates.** No chat-message-with-special-syntax gates. The v1.2.x failure mode was the LLM inventing extra prompts or chickening out at the gate; modal AskUserQuestion eliminates the interpretive surface.
+- **Never re-fire a gate after it advanced.** Once APPROVE returns, the next message advances to the next stage. Do not re-ask for confirmation.
+- **Never proceed past a failed validation by guessing.** Surface the failure with remediation pointers; let the user steer.
+- **Never write outside `.agent-runs/<run_id>/` and the project working tree** that the pipeline stages themselves modify.
+- **Auto-promote is evidence-driven, not authorization-driven.** If `auto_promote.py` says ELIGIBLE, the gate is skipped automatically. If it says NOT_ELIGIBLE, the human gate fires — no override.
 
 ## Failure-message shape (all error surfaces)
 
@@ -251,10 +187,10 @@ Every failure the user sees follows this shape:
 <one-line summary of what failed>
 
   What happened: <one sentence in plain language>
-  Where: <file path or stage name>
-  Suggestion: <concrete next action>
+  Where:         <file path or stage name>
+  Suggestion:    <concrete next action>
 
-  Full context: <path to artifact with details, if any>
+  Full context:  <path to artifact with details, if any>
 ```
 
 No raw Python tracebacks in chat. No "check_xxx: FAIL" output. The orchestrator translates every error into the shape above before showing the user.

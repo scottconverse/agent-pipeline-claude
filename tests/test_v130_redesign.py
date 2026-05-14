@@ -1,0 +1,202 @@
+# SPDX-License-Identifier: Apache-2.0
+"""v1.3.0 redesign contract tests.
+
+These tests pin the v1.3.0 surface so a future change can't silently
+re-introduce the v1.2.x grant + autonomous-mode flow.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _read(path):
+    return path.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Pipeline yaml hygiene
+# ---------------------------------------------------------------------------
+
+def test_no_autonomous_skip_chat_in_pipeline_yamls():
+    """No pipeline yaml carries `autonomous_skip_chat: true` in v1.3.0."""
+    for yml in (REPO_ROOT / "pipelines").glob("*.yaml"):
+        text = _read(yml)
+        assert "autonomous_skip_chat: true" not in text, (
+            f"{yml.name} still contains autonomous_skip_chat: true — "
+            f"v1.3.0 removed this flag because gates are modal."
+        )
+
+
+def test_payload_pipeline_yamls_clean():
+    """Same check on the pipeline-init payload."""
+    payload = REPO_ROOT / "skills" / "pipeline-init" / "references" / "pipeline-payload" / "pipelines"
+    for yml in payload.glob("*.yaml"):
+        text = _read(yml)
+        assert "autonomous_skip_chat: true" not in text, (
+            f"payload/{yml.name} still contains autonomous_skip_chat: true"
+        )
+
+
+def test_manifest_template_has_no_gate_policy_field():
+    """manifest-template.yaml must not ship gate_policy: as a field."""
+    for path in [
+        REPO_ROOT / "pipelines" / "manifest-template.yaml",
+        REPO_ROOT / "skills" / "pipeline-init" / "references" / "pipeline-payload" / "pipelines" / "manifest-template.yaml",
+    ]:
+        text = _read(path)
+        # The field would look like `  gate_policy: human` or `  gate_policy: autonomous`
+        # at top-of-line under the pipeline_run: block. Comments mentioning the
+        # historical field are OK.
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            assert not stripped.startswith("gate_policy:"), (
+                f"{path}: still declares gate_policy: as a manifest field — v1.3.0 removed it."
+            )
+
+
+def test_manifest_template_has_no_autonomous_grant_field():
+    """manifest-template.yaml must not ship autonomous_grant: as a field."""
+    for path in [
+        REPO_ROOT / "pipelines" / "manifest-template.yaml",
+        REPO_ROOT / "skills" / "pipeline-init" / "references" / "pipeline-payload" / "pipelines" / "manifest-template.yaml",
+    ]:
+        text = _read(path)
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            assert not stripped.startswith("autonomous_grant:"), (
+                f"{path}: still declares autonomous_grant: as a manifest field — v1.3.0 removed it."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Role files: no autonomous-mode awareness sections
+# ---------------------------------------------------------------------------
+
+def test_no_autonomous_mode_awareness_in_roles():
+    """The autonomous-mode awareness sections in role files are gone."""
+    for role in (REPO_ROOT / "pipelines" / "roles").glob("*.md"):
+        text = _read(role)
+        assert "## Autonomous-mode awareness" not in text, (
+            f"{role.name} still has a `## Autonomous-mode awareness` section."
+        )
+
+
+def test_no_autonomous_mode_awareness_in_payload_roles():
+    """Same check on the payload role files."""
+    payload_roles = (
+        REPO_ROOT
+        / "skills"
+        / "pipeline-init"
+        / "references"
+        / "pipeline-payload"
+        / "pipelines"
+        / "roles"
+    )
+    for role in payload_roles.glob("*.md"):
+        text = _read(role)
+        assert "## Autonomous-mode awareness" not in text, (
+            f"payload/{role.name} still has a `## Autonomous-mode awareness` section."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Skills: deprecation shims
+# ---------------------------------------------------------------------------
+
+def test_run_autonomous_is_deprecation_shim():
+    skill_md = REPO_ROOT / "skills" / "run-autonomous" / "SKILL.md"
+    text = _read(skill_md)
+    assert "Deprecated" in text or "deprecated" in text
+    assert "v1.3.0" in text
+    # Must redirect users to /run
+    assert "/agent-pipeline-claude:run" in text
+
+
+def test_grant_autonomous_is_deprecation_shim():
+    skill_md = REPO_ROOT / "skills" / "grant-autonomous" / "SKILL.md"
+    text = _read(skill_md)
+    assert "Deprecated" in text or "deprecated" in text
+    assert "v1.3.0" in text
+
+
+# ---------------------------------------------------------------------------
+# Run skill: uses AskUserQuestion not chat-APPROVE ceremony
+# ---------------------------------------------------------------------------
+
+def test_run_skill_references_askuserquestion():
+    """SKILL.md of /run must reference AskUserQuestion as the gate tool."""
+    text = _read(REPO_ROOT / "skills" / "run" / "SKILL.md")
+    assert "AskUserQuestion" in text, (
+        "v1.3.0 run skill must use AskUserQuestion for the three human gates."
+    )
+
+
+def test_run_procedure_uses_modal_gates():
+    """references/run.md must describe modal gates, not chat-APPROVE ceremony."""
+    text = _read(REPO_ROOT / "skills" / "run" / "references" / "run.md")
+    assert "AskUserQuestion" in text
+    # The v1.2.x hard rule that BANNED AskUserQuestion must be gone.
+    assert "Never invoke `AskUserQuestion`" not in text
+    assert "never substitute `AskUserQuestion`" not in text.lower()
+
+
+def test_run_skill_does_not_require_grant():
+    """SKILL.md must not require a grant file for autonomous flow."""
+    text = _read(REPO_ROOT / "skills" / "run" / "SKILL.md")
+    # The v1.2.1 SKILL.md had "v1.2.1+ Autonomous mode procedure" section.
+    assert "Autonomous mode procedure" not in text
+    # Auto-promote should be cited as the path to hands-off.
+    assert "auto-promote" in text.lower() or "auto_promote" in text
+
+
+# ---------------------------------------------------------------------------
+# Version pin
+# ---------------------------------------------------------------------------
+
+def test_plugin_version_is_1_3_0():
+    import json
+    plugin = json.loads(_read(REPO_ROOT / ".claude-plugin" / "plugin.json"))
+    assert plugin["version"] == "1.3.0"
+
+
+def test_changelog_has_v130_entry():
+    text = _read(REPO_ROOT / "CHANGELOG.md")
+    assert "## [1.3.0]" in text
+    # Must reference the redesign rationale
+    assert "modal" in text.lower() or "AskUserQuestion" in text
+
+
+# ---------------------------------------------------------------------------
+# Backward compat: stubs return zero so existing yamls still work
+# ---------------------------------------------------------------------------
+
+def test_check_autonomous_mode_is_noop():
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "check_autonomous_mode.py")],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0
+    assert "HUMAN-MODE" in r.stdout
+
+
+def test_check_autonomous_compliance_is_noop():
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "check_autonomous_compliance.py")],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0
+    assert "NO-OP" in r.stdout

@@ -1,167 +1,73 @@
-"""Tests for scripts/check_autonomous_mode.py — v1.2.1 grant validation."""
+# SPDX-License-Identifier: Apache-2.0
+"""v1.3.0 contract: check_autonomous_mode.py is a no-op stub.
+
+The grant + autonomous-mode flow was removed in v1.3.0. The script
+is kept so existing pipeline yamls that reference it still work,
+but it always exits 0 with status HUMAN-MODE regardless of input.
+"""
 
 from __future__ import annotations
 
+import subprocess
 import sys
-import textwrap
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-import yaml
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
-
-import check_autonomous_mode as cam  # type: ignore  # noqa: E402
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = REPO_ROOT / "scripts" / "check_autonomous_mode.py"
 
 
-def _write_grant(
-    tmp_path: Path,
-    *,
-    granted_at: datetime,
-    expires_at: datetime,
-    revoked: bool = False,
-    name: str = "test-grant.md",
-    skip_header: str | None = None,
-) -> Path:
-    grants_dir = tmp_path / ".agent-workflows" / "autonomous-grants"
-    grants_dir.mkdir(parents=True, exist_ok=True)
-    headers = {
-        "Granted-by": "Scott Converse",
-        "Granted-at": granted_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "Expires-at": expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "Scope": "test project",
-        "Authorized-gates": "manifest-gate APPROVE, plan-gate APPROVE, manager-gate APPROVE (PROMOTE only)",
-        "Forbidden-actions": "admin-merge any PR, tag push, release publish, force push, any action_class: high_risk",
-        "Revoked": "true" if revoked else "false",
-        "Rationale": "test rationale",
-    }
-    lines = ["# Autonomous grant — test", ""]
-    for k, v in headers.items():
-        if skip_header is not None and k == skip_header:
-            continue
-        lines.append(f"{k}: {v}")
-    lines.extend(["", "## History", f"- {granted_at.isoformat()} — created (test)"])
-    path = grants_dir / name
-    path.write_text("\n".join(lines), encoding="utf-8")
-    return path
+def _run(args=None):
+    """Invoke the script directly via subprocess so we exercise the real CLI."""
+    cmd = [sys.executable, str(SCRIPT)]
+    if args:
+        cmd.extend(args)
+    return subprocess.run(cmd, capture_output=True, text=True)
 
 
-def _write_manifest(tmp_path: Path, **fields: object) -> Path:
-    pipeline_run = {"id": "test-run", "type": "feature"}
-    pipeline_run.update(fields)
-    manifest = tmp_path / "manifest.yaml"
-    manifest.write_text(yaml.safe_dump({"pipeline_run": pipeline_run}), encoding="utf-8")
-    return manifest
+def test_noop_with_no_args_returns_zero():
+    r = _run()
+    assert r.returncode == 0
+    assert "HUMAN-MODE" in r.stdout
+    assert "v1.3.0" in r.stdout
 
 
-def test_human_mode_when_no_gate_policy(tmp_path: Path) -> None:
-    """Manifest without gate_policy → HUMAN-MODE, no grant needed."""
-    manifest = _write_manifest(tmp_path)
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "HUMAN-MODE"
+def test_noop_ignores_run_arg():
+    r = _run(["--run", "anything"])
+    assert r.returncode == 0
+    assert "HUMAN-MODE" in r.stdout
 
 
-def test_human_mode_when_explicitly_human(tmp_path: Path) -> None:
-    manifest = _write_manifest(tmp_path, gate_policy="human")
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "HUMAN-MODE"
+def test_noop_ignores_grant_arg():
+    r = _run(["--grant", "/nonexistent/path.md"])
+    assert r.returncode == 0
+    assert "HUMAN-MODE" in r.stdout
 
 
-def test_autonomous_active_with_valid_grant(tmp_path: Path) -> None:
-    """gate_policy=autonomous with valid in-window grant → AUTONOMOUS-ACTIVE."""
-    now = datetime.now(timezone.utc)
-    grant = _write_grant(
-        tmp_path,
-        granted_at=now - timedelta(hours=1),
-        expires_at=now + timedelta(hours=4),
-    )
-    manifest = _write_manifest(
-        tmp_path,
-        gate_policy="autonomous",
-        autonomous_grant=str(grant.relative_to(tmp_path)),
-    )
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "AUTONOMOUS-ACTIVE", state.error
-    assert state.granted_by == "Scott Converse"
-    assert "manifest-gate" in " ".join(state.authorized_gates or [])
+def test_noop_ignores_manifest_arg():
+    r = _run(["--manifest", "/nonexistent/manifest.yaml"])
+    assert r.returncode == 0
+    assert "HUMAN-MODE" in r.stdout
 
 
-def test_no_grant_file_when_path_missing(tmp_path: Path) -> None:
-    manifest = _write_manifest(
-        tmp_path,
-        gate_policy="autonomous",
-        autonomous_grant=".agent-workflows/autonomous-grants/does-not-exist.md",
-    )
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "NO_GRANT_FILE"
+def test_noop_ignores_all_args_together():
+    r = _run(["--run", "x", "--manifest", "y", "--grant", "z"])
+    assert r.returncode == 0
+    assert "HUMAN-MODE" in r.stdout
 
 
-def test_no_grant_file_when_path_empty(tmp_path: Path) -> None:
-    manifest = _write_manifest(tmp_path, gate_policy="autonomous", autonomous_grant="")
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "NO_GRANT_FILE"
+def test_version_flag():
+    r = _run(["--version"])
+    assert r.returncode == 0
+    assert "1.3.0-noop" in r.stdout
 
 
-def test_grant_expired(tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
-    grant = _write_grant(
-        tmp_path,
-        granted_at=now - timedelta(hours=12),
-        expires_at=now - timedelta(hours=1),
-    )
-    manifest = _write_manifest(
-        tmp_path,
-        gate_policy="autonomous",
-        autonomous_grant=str(grant.relative_to(tmp_path)),
-    )
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "GRANT_EXPIRED"
+def test_help_flag():
+    r = _run(["--help"])
+    assert r.returncode == 0
+    assert "no-op" in r.stdout.lower() or "always returns PASS" in r.stdout
 
 
-def test_grant_revoked(tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
-    grant = _write_grant(
-        tmp_path,
-        granted_at=now - timedelta(hours=1),
-        expires_at=now + timedelta(hours=4),
-        revoked=True,
-    )
-    manifest = _write_manifest(
-        tmp_path,
-        gate_policy="autonomous",
-        autonomous_grant=str(grant.relative_to(tmp_path)),
-    )
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "GRANT_REVOKED"
-
-
-def test_grant_malformed_missing_header(tmp_path: Path) -> None:
-    now = datetime.now(timezone.utc)
-    grant = _write_grant(
-        tmp_path,
-        granted_at=now - timedelta(hours=1),
-        expires_at=now + timedelta(hours=4),
-        skip_header="Expires-at",
-    )
-    manifest = _write_manifest(
-        tmp_path,
-        gate_policy="autonomous",
-        autonomous_grant=str(grant.relative_to(tmp_path)),
-    )
-    state = cam.evaluate_manifest(manifest, tmp_path)
-    assert state.status == "GRANT_MALFORMED"
-    assert "Expires-at" in (state.error or "")
-
-
-def test_evaluate_grant_directly(tmp_path: Path) -> None:
-    """evaluate_grant() works on a grant path without going through a manifest."""
-    now = datetime.now(timezone.utc)
-    grant = _write_grant(
-        tmp_path,
-        granted_at=now - timedelta(hours=1),
-        expires_at=now + timedelta(hours=4),
-    )
-    state = cam.evaluate_grant(grant)
-    assert state.status == "AUTONOMOUS-ACTIVE"
+def test_invalid_flag_still_fails_gracefully():
+    """argparse rejects unknown flags with exit 2 — kept for sanity."""
+    r = _run(["--bogus"])
+    assert r.returncode == 2

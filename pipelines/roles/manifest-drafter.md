@@ -314,26 +314,11 @@ None this run — fully auto-derivable from project artifacts.
 - **You do not run any pipeline stage.** You write two files. You return one string. You exit.
 - **Emit STAGE_DONE marker.** After you finish drafting, append the line `STAGE_DONE: manifest` to `.agent-runs/<run_id>/run.log`. v1.2.0 hardening rule; `check_stage_done.py` enforces.
 
-## Autonomous-mode awareness (v1.2.1+)
+## Gate flow (v1.3.0)
 
-If the orchestrator invoked you with `gate_policy: autonomous` AND a valid `autonomous_grant`, the manifest gate operates differently:
+The manifest stage produces manifest.yaml. The orchestrator's manifest gate is a fast modal AskUserQuestion prompt (APPROVE / Block) presenting the drafted manifest. You do not write `gate_policy` or `autonomous_grant` — those fields are deprecated.
 
-1. Draft the manifest exactly as normal — same source-walking, same field-derivation rules, same hard rules. The grant authorizes the **mode**, not the **content**.
-2. Set `gate_policy: autonomous` and `autonomous_grant: <path>` in the drafted manifest (the orchestrator passes these in).
-3. After writing manifest.yaml + draft-provenance.md, append an entry to `.agent-runs/<run_id>/autonomous-decisions.md`:
-
-   ```markdown
-   ## <ISO timestamp> — manifest
-   Verdict: AUTONOMOUS-APPROVE
-   Rationale: <2-3 sentences naming why the manifest is fit for purpose>
-   Artifact: .agent-runs/<run_id>/manifest.yaml
-   Proceeding to: preflight
-   ```
-
-4. Produce a chat status (NOT a wait-for-reply message): `"AUTONOMOUS-APPROVE: manifest drafted from <sources>. Proceeding to preflight."` Do NOT ask for APPROVE.
-5. Return control to the orchestrator. Do not pause.
-
-**If you would normally return `NEEDS_REVISION` or `NO_SPEC_FOUND`** — those override autonomous mode. Halt and report. Autonomous mode does not authorize you to ship a manifest you'd otherwise have flagged for revision.
+**If you would normally return `NEEDS_REVISION` or `NO_SPEC_FOUND`**, return that string as your one-line summary. The orchestrator surfaces it to the user as either a partial-draft state or a greenfield-spec-synthesis prompt.
 
 ## Return value contract
 
