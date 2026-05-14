@@ -5,6 +5,36 @@ All notable changes to `agent-pipeline-claude` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] — 2026-05-14
+
+**Remove two false-stops that block hands-off auto-promote.**
+
+v1.3.0's design intent — evidence-driven auto-promote so clean runs complete without manual gates — depended on two paths through the gate scripts that v1.3.0 didn't touch. v1.3.1 closes both, narrowly:
+
+### Changed
+
+- **`scripts/auto_promote.py::_check_tests`** — vacuous-pass exception added. When the manifest's `forbidden_paths` explicitly forbids the test directory (so the executor was barred from running or modifying tests) AND `implementation-report.md` is absent, condition 6 now passes with explanation instead of failing on the absence of a test-pass signal it could not possibly have. Mirrors the existing vacuous-pass behavior of `_check_judge` for runs without `judge-metrics.yaml`. **Why it matters under v1.3.0:** every docs-only run hit condition-6 failure → manager modal fired → no hands-off completion. This was Finding #1 in the v1.2.1 PROMOTED report (CivicSuite Candidate B macOS-narrowing run). The strict default is preserved for runs that don't explicitly declare tests out of scope, so a real implementation gap is not silently auto-promoted.
+- **`scripts/run_all.py`** — when invoked with `--run`, writes `policy-report.md` directly to the run directory instead of relying on the orchestrator to capture stdout. The marker line `POLICY: ALL CHECKS PASSED` (or `POLICY: N CHECK(S) FAILED`) is now guaranteed to appear in the artifact, not contingent on a stdout-pipeline that proved unreliable in real runs. **Why it matters:** when the orchestrator's stdout capture glitched, auto_promote's condition 4 read `policy-report.md`, didn't find the marker, and failed the gate — even though policy actually passed. The manager modal then fired for a fictional policy failure, eroding trust ("I just read the file, policy DID pass, why is this asking me?"). Removes that whole class of confusing false-stops. Also adds a `--version` flag (was missing in v1.3.0).
+- **`scripts/auto_promote.py` `--version`** — fixed stale `agent-pipeline-claude 1.2.1` → `1.3.1`. Operators running `auto_promote.py --version` to confirm their install now get the correct version.
+- **`scripts/auto_promote.py::_manifest_forbids_tests`** — handles flow-style `forbidden_paths: ["tests/"]` in addition to block style. Caught by audit; the original parser only walked block-style `- entry` lines.
+- **`ARCHITECTURE.md`** — condition 6 description updated with the vacuous-pass note, parallel construction with the existing judge-layer note for condition 5.
+- **Payload mirror** — `skills/pipeline-init/references/pipeline-payload/scripts/{auto_promote.py,run_all.py}` updated in lockstep with the live scripts so newly-scaffolded projects post-v1.3.1 inherit both fixes.
+
+### Added
+
+- **`tests/test_auto_promote_vacuous.py`** — 12 tests pinning the new vacuous-pass behavior plus parser-robustness against future "simplification" regressions: back-compat (default strict failure still fires when the manifest doesn't forbid tests), nested test-path patterns (`tests/unit/`), singular `test/`, "implementation-report exists → use it, don't shortcut" guard, no-false-positive on `tests-data/` substring, inline empty `[]`, flow-style `["tests/", ...]`, inline comment after entry, and a full end-to-end integration test driving `auto_promote.main()` against a fully-scaffolded docs-only run dir to PROMOTE.
+- **`tests/test_run_all_writes_policy_report.py`** — 3 tests pinning the direct-write contract: writes artifact when `--run` + dir exists, no silent dir creation on bogus run-id, no write without `--run`.
+
+### Not changed
+
+- The `_check_tests` failure-counts logic (`0 failed` matching anywhere in the report) was identified as a separate bug but deliberately left alone. Fixing it would make auto-promote *stricter*, adding another reason to stop — directly against v1.3.0's "remove reasons to stop" design intent. The malformed-mixed-output case is theoretical; no real-world run has been observed producing such a report.
+- No new manifest schema fields. The vacuous-pass detects from the existing `forbidden_paths` declaration.
+
+### Notes
+
+- Net diff: ~150 lines including tests. All additive.
+- The `auto_promote.py` change is opt-in by manifest content. The `run_all.py` change is additive over the existing stdout path (orchestrators that capture stdout will simply overwrite identical bytes).
+
 ## [1.3.0] — 2026-05-14
 
 **Codex-aligned redesign: modal gates replace chat-APPROVE; grant + autonomous-mode removed entirely.**
