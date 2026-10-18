@@ -1,3 +1,5 @@
+> **Archived October 17, 2026.** Superseded by [claude-hook-kit](https://github.com/scottconverse/claude-hook-kit) (per-project harness hooks with parity tests) and [dev-rigor-stack-lite](https://github.com/scottconverse/dev-rigor-stack-lite) (the prose rules). Nothing from this repo was ported; a file-by-file check on Oct 17 found similar copies of most of its scripts, roles and docs only in its sibling [agent-pipeline-codex](https://github.com/scottconverse/agent-pipeline-codex) (also archived), and no copy in any surviving repo. Everything remains readable here. This repository is read-only; history and issues are preserved.
+
 # agent-pipeline-claude
 
 **Ship multi-step Claude Code work that doesn't drift.**
